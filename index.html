@@ -1096,7 +1096,6 @@ const satietyMap={
     console.log('Auth event:', event, !!session);
     if((event==='SIGNED_IN'||event==='INITIAL_SESSION')&&session&&!onPetScreen){
       authScreen.classList.remove('visible');
-      heroScreen.style.display='none';
       await initUserState(session.user);
       goToPet();
     }
