@@ -1091,7 +1091,7 @@ const satietyMap={
     if(error)authErr.textContent=error.message;
   });
 
-  // Auth handler
+  // Auth handler — also check session immediately on load
   supa.auth.onAuthStateChange(async(event,session)=>{
     console.log('Auth event:', event, !!session);
     if((event==='SIGNED_IN'||event==='INITIAL_SESSION')&&session&&!onPetScreen){
@@ -1100,6 +1100,18 @@ const satietyMap={
       goToPet();
     }
   });
+
+  // Belt-and-suspenders: also check session directly
+  setTimeout(async()=>{
+    if(onPetScreen)return;
+    const {data:{session}}=await supa.auth.getSession();
+    console.log('Direct session check:', !!session);
+    if(session&&!onPetScreen){
+      authScreen.classList.remove('visible');
+      await initUserState(session.user);
+      goToPet();
+    }
+  },300);
 
   // Hero screen click/tap → show auth
   heroScreen.addEventListener('click',e=>{
