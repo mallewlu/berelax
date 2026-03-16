@@ -963,7 +963,7 @@ const satietyMap={
     try{
       const res=await fetch('https://kpoeifwhechqofqybrbr.supabase.co/functions/v1/chat',{
         method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtwb2VpZndoZWNocW9mcXlicmJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MTE0MzIsImV4cCI6MjA4OTE4NzQzMn0.CSvXM4vTp6ThG4JIeS89kKrrLd0MHmKIp3Z8qCcvAWM'},
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+((await supa.auth.getSession()).data.session?.access_token||'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtwb2VpZndoZWNocW9mcXlicmJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MTE0MzIsImV4cCI6MjA4OTE4NzQzMn0.CSvXM4vTp6ThG4JIeS89kKrrLd0MHmKIp3Z8qCcvAWM')},
         body:JSON.stringify({system:sys,max_tokens:25,messages:[{role:'user',content:'"'+msg+'" geldi. Tepki ver.'}]})
       });
       const data=await res.json();
@@ -976,7 +976,7 @@ const satietyMap={
       blob.classList.remove('thinking');blob.classList.add('happy');
       showPet(reply);
       setTimeout(()=>blob.classList.remove('happy'),1300);
-    } catch(err){blob.classList.remove('thinking');showPet('...');} finally{feedPet._busy=false;}
+    } catch(err){blob.classList.remove('thinking');showPet('...');feedPet._busy=false;}
   }
 
   /* ── Drop & collect ── */
@@ -1196,11 +1196,11 @@ const satietyMap={
   };
 
   // Hero screen click/tap → show auth
+  document.getElementById('MINI').addEventListener('click',window.goToHero);
   heroScreen.addEventListener('click',e=>{
     if(e.target.closest('#TOGGLE'))return;
-    // Sadece kalbe tıklayınca login aç
-    if(e.target.closest('#heart')||e.target.closest('#heart2')||e.target.closest('path')){
-      showAuth();
+    if(e.target.closest('#TILT')){
+      if(window._goToPetGated)window._goToPetGated();else showAuth();
     }
   });
 
