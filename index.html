@@ -52,10 +52,10 @@ html[data-mode="light"] .toggle{background:var(--fg-light);}
 
 /* Mini header */
 .mini-header{
-  position:fixed;top:calc(1.6rem + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);
+  position:fixed;top:calc(1.6rem + env(safe-area-inset-top,0px));left:calc(1.6rem + env(safe-area-inset-left,0px));
   width:44px;height:44px;opacity:0;transition:opacity .5s ease .3s;z-index:15;pointer-events:none;
 }
-.mini-header.visible{opacity:1;}
+.mini-header.visible{opacity:1;pointer-events:auto;cursor:pointer;}
 .mini-header svg{width:100%;height:100%;}
 .mini-llight{display:block;}.mini-ldark{display:none;}
 html[data-mode="light"] .mini-llight{display:none;}
@@ -142,7 +142,6 @@ html[data-mode="light"] .back-hint{color:var(--fg-light);}
   transform:scale(0.9) translate(4px,4px);
 }
 .pet-bubble.side-left.visible{transform:scale(1) translate(0,0);}
-.pet-bubble.visible{opacity:1;}
 html[data-mode="light"] .pet-bubble{background:var(--fg-light);color:var(--bg-light);}
 .pet-bubble.thinking{opacity:.3;}
 
@@ -341,8 +340,8 @@ html[data-mode="light"] .auth-google-btn{background:var(--bg-light);color:var(--
 
 <!-- Screen 2: Pet -->
 <div id="screen-pet">
-  <div class="back-hint" id="BACK">← back</div>
-  <div class="back-hint" id="LOGOUT" style="top:calc(2rem + env(safe-area-inset-top,0px));right:calc(1.6rem + env(safe-area-inset-right,0px));left:auto;" onclick="doSignOut()">çıkış</div>
+  
+  
   <div class="pet-scene">
     <div class="pet-wrap" style="position:relative;">
       <div class="pet-bubble" id="PET_BUBBLE"></div>
@@ -510,7 +509,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
   /* ── Pet UI visibility helpers ── */
   function setPetUIVisible(v){
-    ['HUNGER_IND','MSG_HISTORY','BACK'].forEach(id=>{
+    ['HUNGER_IND','MSG_HISTORY'].forEach(id=>{
       const el=document.getElementById(id);if(el)el.style.visibility=v?'visible':'hidden';
     });
     const ubw=document.querySelector('.user-bubble-wrap');if(ubw)ubw.style.visibility=v?'visible':'hidden';
@@ -563,7 +562,7 @@ document.addEventListener("DOMContentLoaded", function() {
     if(droppedEmoji){droppedEmoji.el.remove();droppedEmoji=null;}
     collecting=false;
   }
-  document.getElementById('BACK').addEventListener('click',goToHero);
+  document.getElementById('MINI').addEventListener('click', goToHero);
   document.addEventListener('click',e=>{
     if(!bubbleOpen)return;
     if(userBubble.contains(e.target))return;
@@ -593,22 +592,19 @@ document.addEventListener("DOMContentLoaded", function() {
   /* ── Pet bubble ── */
   let petTimer=null;
   function showPet(text,thinking=false){
-    if(petTimer){clearTimeout(petTimer);petTimer=null;}
-    petBubble.style.opacity='';
-    const side = petX > 0 ? 'side-left' : 'side-right';
     petBubble.classList.remove('visible','thinking','side-right','side-left');
-    requestAnimationFrame(()=>{
+    if(petTimer){clearTimeout(petTimer);petTimer=null;}
+    // Hangi tarafta — pet X pozisyonuna göre
+    const side = petX > 0 ? 'side-left' : 'side-right';
+    setTimeout(()=>{
       petBubble.textContent=text;
-      petBubble.classList.add(side);
+      petBubble.classList.add('visible', side);
       if(thinking)petBubble.classList.add('thinking');
-      requestAnimationFrame(()=>{
-        petBubble.classList.add('visible');
-      });
-    });
+    },100);
     if(!thinking){
       petTimer=setTimeout(()=>{
-        petBubble.classList.remove('visible');
-        setTimeout(()=>petBubble.classList.remove('side-right','side-left'),350);
+        petBubble.style.opacity='0';
+        setTimeout(()=>{petBubble.classList.remove('visible','side-right','side-left');petBubble.style.opacity='';},400);
       },5000);
     }
   }
