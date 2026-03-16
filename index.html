@@ -338,6 +338,7 @@ html[data-mode="light"] .auth-google-btn{background:var(--bg-light);color:var(--
 <!-- Screen 2: Pet -->
 <div id="screen-pet">
   <div class="back-hint" id="BACK">← back</div>
+  <div class="back-hint" id="LOGOUT" style="top:calc(2rem + env(safe-area-inset-top,0px));right:calc(1.6rem + env(safe-area-inset-right,0px));left:auto;" onclick="doSignOut()">çıkış</div>
   <div class="pet-scene">
     <div class="pet-bubble" id="PET_BUBBLE"></div>
     <div class="pet-wrap">
@@ -396,6 +397,11 @@ html[data-mode="light"] .auth-google-btn{background:var(--bg-light);color:var(--
 document.addEventListener("DOMContentLoaded", function() {
 (function(){
   const html=document.documentElement;
+
+  /* SQL: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS character text DEFAULT 'masum'; */
+  const SUPA_URL='https://kpoeifwhechqofqybrbr.supabase.co';
+  const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtwb2VpZndoZWNocW9mcXlicmJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MTE0MzIsImV4cCI6MjA4OTE4NzQzMn0.CSvXM4vTp6ThG4JIeS89kKrrLd0MHmKIp3Z8qCcvAWM';
+  const supa=supabase.createClient(SUPA_URL,SUPA_KEY);
   const cur=document.getElementById('CUR');
   const toggle=document.getElementById('TOGGLE');
   const tilt=document.getElementById('TILT');
@@ -959,7 +965,7 @@ const satietyMap={
       blob.classList.remove('thinking');blob.classList.add('happy');
       showPet(reply);
       setTimeout(()=>blob.classList.remove('happy'),1300);
-    } catch{blob.classList.remove('thinking');showPet('...');}
+    } catch(err){blob.classList.remove('thinking');showPet('...');}
   }
 
   /* ── Drop & collect ── */
@@ -993,11 +999,18 @@ const satietyMap={
   let petX=0,petY=0,petTX=0,petTY=0;
   let petMode='idle',lastInteraction=Date.now();
   let isDragging=false,dragOffX=0,dragOffY=0;
-  const MARGIN=80,DRIFT=0.032,COLLECT=0.025,BORED=0.018;
+  // Dinamik margin — üst: mini header, alt: send butonu, yan: minimal
+  const MARGIN_TOP = 80;   // mini header altında kalsın
+  const MARGIN_BOT = 90;   // send butonu üstünde kalsın
+  const MARGIN_LR  = 30;   // yanlarda çok az boşluk
+  const DRIFT=0.032,COLLECT=0.025,BORED=0.018;
 
   function clampPetPos(x,y){
     const hw=petScene.offsetWidth/2||70,hh=petScene.offsetHeight/2||70;
-    return [Math.max(MARGIN+hw,Math.min(W-MARGIN-hw,x)),Math.max(MARGIN+hh,Math.min(H-MARGIN-hh,y))];
+    return [
+      Math.max(MARGIN_LR+hw, Math.min(W-MARGIN_LR-hw, x)),
+      Math.max(MARGIN_TOP+hh, Math.min(H-MARGIN_BOT-hh, y))
+    ];
   }
   function setPetTarget(ax,ay){
     const [cx,cy]=clampPetPos(ax,ay);petTX=cx-W/2;petTY=cy-H/2;
@@ -1065,10 +1078,7 @@ const satietyMap={
 
 
   /* ── Supabase Auth ── */
-  /* SQL: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS character text DEFAULT 'masum'; */
-  const SUPA_URL='https://kpoeifwhechqofqybrbr.supabase.co';
-  const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtwb2VpZndoZWNocW9mcXlicmJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MTE0MzIsImV4cCI6MjA4OTE4NzQzMn0.CSvXM4vTp6ThG4JIeS89kKrrLd0MHmKIp3Z8qCcvAWM';
-  const supa=supabase.createClient(SUPA_URL,SUPA_KEY);
+
 
   const authScreen=document.getElementById('screen-auth');
   const authGoogle=document.getElementById('AUTH_GOOGLE');
@@ -1121,11 +1131,25 @@ const satietyMap={
 
   // Also listen for changes (OAuth redirect, token refresh)
   supa.auth.onAuthStateChange((event,session)=>{
-    console.log('Auth event:', event, !!session);
     if(event==='SIGNED_IN'||event==='TOKEN_REFRESHED'){
       handleSession(session);
     }
+    if(event==='SIGNED_OUT'){
+      onPetScreen=false;
+      petScreen.classList.remove('visible');
+      miniHeader.classList.remove('visible');
+      heroScreen.style.display='';
+      heroScreen.classList.remove('exiting');
+      document.body.classList.remove('auth-loading');
+    }
   });
+
+  // Logout function
+  window.doSignOut=async function(){
+    await supa.auth.signOut();
+    currentUser=null;
+    try{localStorage.removeItem(KEY);}catch{}
+  };
 
   // Hero screen click/tap → show auth
   heroScreen.addEventListener('click',e=>{
@@ -1146,7 +1170,6 @@ const satietyMap={
       heroScreen.style.display='';
       heroScreen.classList.remove('exiting');
       isNewUser=true;
-      console.log('Dev bypass — karakter:',currentCharacter);
       goToPet();
     }
   });
