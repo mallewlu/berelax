@@ -143,6 +143,7 @@ html[data-mode="light"] .back-hint{color:var(--fg-light);}
 }
 .pet-bubble.side-left.visible{transform:scale(1) translate(0,0);}
 .pet-bubble.visible{opacity:1;}
+.pet-bubble.visible{opacity:1;}
 html[data-mode="light"] .pet-bubble{background:var(--fg-light);color:var(--bg-light);}
 .pet-bubble.thinking{opacity:.3;}
 
@@ -497,7 +498,7 @@ document.addEventListener("DOMContentLoaded", function() {
     // Swipe up: clear vertical gesture, no drag conflict
     const isSwipeUp=(dy>50&&dx<70)||(velocity>0.4&&dy>25&&dx<70);
     if(isSwipeUp&&!onPetScreen){
-      showAuth();
+      if(window._goToPetGated)window._goToPetGated();else showAuth();
     }
     sy0=null;st0=null;swipeLocked=false;
   },{passive:true});
@@ -550,7 +551,7 @@ document.addEventListener("DOMContentLoaded", function() {
       else showPet('...');
     }
   }
-  window.goToHero = function goToHero(){
+  window.goToHero = window.goToHero = function goToHero(){
     onPetScreen=false;
     heroScreen.style.display='';
     requestAnimationFrame(()=>requestAnimationFrame(()=>heroScreen.classList.remove('exiting')));
@@ -563,6 +564,7 @@ document.addEventListener("DOMContentLoaded", function() {
     if(droppedEmoji){droppedEmoji.el.remove();droppedEmoji=null;}
     collecting=false;
   }
+  document.getElementById('MINI').addEventListener('click',window.goToHero);
   document.getElementById('MINI').addEventListener('click', goToHero);
   document.addEventListener('click',e=>{
     if(!bubbleOpen)return;
@@ -1196,7 +1198,6 @@ const satietyMap={
   };
 
   // Hero screen click/tap → show auth
-  document.getElementById('MINI').addEventListener('click',window.goToHero);
   heroScreen.addEventListener('click',e=>{
     if(e.target.closest('#TOGGLE'))return;
     if(e.target.closest('#TILT')){
