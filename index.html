@@ -1091,19 +1091,14 @@ const satietyMap={
     if(error)authErr.textContent=error.message;
   });
 
-  // Single auth handler — covers page load, OAuth redirect, token refresh
-  let authHandled=false;
+  // Auth handler
   supa.auth.onAuthStateChange(async(event,session)=>{
-    if(session&&!onPetScreen){
-      if(authHandled)return;
-      authHandled=true;
+    console.log('Auth event:', event, !!session);
+    if((event==='SIGNED_IN'||event==='INITIAL_SESSION')&&session&&!onPetScreen){
       authScreen.classList.remove('visible');
+      heroScreen.style.display='none';
       await initUserState(session.user);
       goToPet();
-    }
-    if(event==='SIGNED_OUT'){
-      authHandled=false;
-      onPetScreen=false;
     }
   });
 
