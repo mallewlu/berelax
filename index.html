@@ -18,7 +18,7 @@
   --fg-dark:#ddd8d0;--fg-light:#1a1a1a;
   --t:.7s ease;
 }
-html,body{width:100%;height:100%;overflow:hidden;position:fixed;}
+html,body{width:100%;height:100%;overflow:hidden;}
 body{background:var(--bg-dark);transition:background var(--t);font-family:'Nunito',sans-serif;}
 body.auth-loading #screen-hero{opacity:0;pointer-events:none;}
 html[data-mode="light"] body{background:var(--bg-light);}
@@ -179,6 +179,7 @@ html[data-mode="light"] .msg-item{background:var(--fg-light);color:var(--bg-ligh
 .user-bubble-wrap{
   position:fixed;bottom:calc(2rem + env(safe-area-inset-bottom,0px));right:calc(1.6rem + env(safe-area-inset-right,0px));
   z-index:20;
+  transition:bottom 0s; /* JS override eder, transition olmasın */
 }
 .user-bubble{
   background:var(--fg-dark);color:var(--bg-dark);
@@ -1210,19 +1211,26 @@ const satietyMap={
 
   window.addEventListener('resize',()=>{W=window.innerWidth;H=window.innerHeight;});
 
-  /* ── Klavye açılınca ekran kaymasın (mobile) ── */
+  /* ── Input klavyenin üstünde kalsın (iOS/Android) ── */
+  const ubw=document.querySelector('.user-bubble-wrap');
+  const BMARG=12;
+
+  function repositionBubble(){
+    if(!window.visualViewport||!ubw)return;
+    const vv=window.visualViewport;
+    const keyboardH=window.innerHeight-(vv.offsetTop+vv.height);
+    if(keyboardH>50){
+      // Klavye açık: bubble'ı klavyenin tam üstüne taşı
+      ubw.style.bottom=(keyboardH+BMARG)+'px';
+    } else {
+      // Klavye kapalı: CSS'e bırak
+      ubw.style.bottom='';
+    }
+  }
+
   if(window.visualViewport){
-    const lockScroll=()=>{
-      // Sayfa scroll'unu sıfırla — klavye açılınca body kaymasın
-      window.scrollTo(0,0);
-      document.documentElement.scrollTop=0;
-      document.body.scrollTop=0;
-    };
-    window.visualViewport.addEventListener('resize',lockScroll);
-    window.visualViewport.addEventListener('scroll',lockScroll);
-    // input focus/blur'da da kilitle
-    feedInput.addEventListener('focus',()=>setTimeout(lockScroll,100));
-    feedInput.addEventListener('blur',lockScroll);
+    window.visualViewport.addEventListener('resize',repositionBubble);
+    window.visualViewport.addEventListener('scroll',repositionBubble);
   }
 
 })();
