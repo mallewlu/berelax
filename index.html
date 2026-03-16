@@ -20,6 +20,7 @@
 }
 html,body{width:100%;height:100%;overflow:hidden;}
 body{background:var(--bg-dark);transition:background var(--t);font-family:'Nunito',sans-serif;}
+body.auth-loading #screen-hero{opacity:0;pointer-events:none;}
 html[data-mode="light"] body{background:var(--bg-light);}
 
 /* Cursor */
@@ -1100,6 +1101,7 @@ const satietyMap={
 
   // Single robust auth handler
   async function handleSession(session){
+    document.body.classList.remove('auth-loading');
     if(!session||onPetScreen)return;
     heroScreen.classList.remove('exiting');
     heroScreen.style.display='';
@@ -1108,8 +1110,14 @@ const satietyMap={
     goToPet();
   }
 
+  // Hide hero until auth resolves
+  document.body.classList.add('auth-loading');
+
   // Check immediately
   supa.auth.getSession().then(({data:{session}})=>handleSession(session));
+
+  // Fallback — show hero if auth takes too long
+  setTimeout(()=>document.body.classList.remove('auth-loading'),800);
 
   // Also listen for changes (OAuth redirect, token refresh)
   supa.auth.onAuthStateChange((event,session)=>{
