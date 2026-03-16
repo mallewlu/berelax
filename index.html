@@ -559,7 +559,10 @@ document.addEventListener("DOMContentLoaded", function() {
 
   window.openBubble=function(){
     if(bubbleOpen)return;
-    bubbleOpen=true;userBubble.classList.add('open');feedInput.focus();
+    bubbleOpen=true;userBubble.classList.add('open');
+    // iOS zoom fix: temporarily set font-size to 16px before focus
+    feedInput.style.fontSize='16px';
+    feedInput.focus();
     if(sendBtn)sendBtn.classList.add('visible');
   };
   function closeBubble(){
@@ -815,9 +818,11 @@ const satietyMap={
     currentUser=user;
     const remote=await loadFromSupabase(user.id);
     if(remote&&remote.pet_state&&Object.keys(remote.pet_state).length>0){
-      // Returning user — restore state
+      // Returning user — restore from Supabase (overrides localStorage)
       state=remote.pet_state;
       currentCharacter=remote.character||'masum';
+      // Sync to localStorage too
+      try{localStorage.setItem(KEY,JSON.stringify(state));}catch{}
     } else {
       // New user — assign random character, init state
       currentCharacter=CHAR_KEYS[Math.floor(Math.random()*CHAR_KEYS.length)];
@@ -1086,22 +1091,19 @@ const satietyMap={
     if(error)authErr.textContent=error.message;
   });
 
-  // Check existing session on load
-  supa.auth.getSession().then(async({data:{session}})=>{
-    if(session){
+  // Single auth handler — covers page load, OAuth redirect, token refresh
+  let authHandled=false;
+  supa.auth.onAuthStateChange(async(event,session)=>{
+    if(session&&!onPetScreen){
+      if(authHandled)return;
+      authHandled=true;
+      authScreen.classList.remove('visible');
       await initUserState(session.user);
       goToPet();
     }
-  });
-
-  // Listen for OAuth redirect
-  supa.auth.onAuthStateChange(async(event,session)=>{
-    if((event==='SIGNED_IN'||event==='TOKEN_REFRESHED')&&session){
-      authScreen.classList.remove('visible');
-      if(!onPetScreen){
-        await initUserState(session.user);
-        goToPet();
-      }
+    if(event==='SIGNED_OUT'){
+      authHandled=false;
+      onPetScreen=false;
     }
   });
 
