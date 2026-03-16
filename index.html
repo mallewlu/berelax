@@ -1098,32 +1098,26 @@ const satietyMap={
     if(error)authErr.textContent=error.message;
   });
 
-  // Auth handler
-  supa.auth.onAuthStateChange(async(event,session)=>{
+  // Single robust auth handler
+  async function handleSession(session){
+    if(!session||onPetScreen)return;
+    heroScreen.classList.remove('exiting');
+    heroScreen.style.display='';
+    authScreen.classList.remove('visible');
+    await initUserState(session.user);
+    goToPet();
+  }
+
+  // Check immediately
+  supa.auth.getSession().then(({data:{session}})=>handleSession(session));
+
+  // Also listen for changes (OAuth redirect, token refresh)
+  supa.auth.onAuthStateChange((event,session)=>{
     console.log('Auth event:', event, !!session);
-    if((event==='SIGNED_IN'||event==='INITIAL_SESSION')&&session&&!onPetScreen){
-      // Reset any stuck hero state
-      heroScreen.classList.remove('exiting');
-      heroScreen.style.display='';
-      authScreen.classList.remove('visible');
-      await initUserState(session.user);
-      goToPet();
+    if(event==='SIGNED_IN'||event==='TOKEN_REFRESHED'){
+      handleSession(session);
     }
   });
-
-  // Fallback session check
-  setTimeout(async()=>{
-    if(onPetScreen)return;
-    const {data:{session}}=await supa.auth.getSession();
-    console.log('Direct session check:', !!session);
-    if(session&&!onPetScreen){
-      heroScreen.classList.remove('exiting');
-      heroScreen.style.display='';
-      authScreen.classList.remove('visible');
-      await initUserState(session.user);
-      goToPet();
-    }
-  },500);
 
   // Hero screen click/tap → show auth
   heroScreen.addEventListener('click',e=>{
