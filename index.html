@@ -142,6 +142,7 @@ html[data-mode="light"] .back-hint{color:var(--fg-light);}
   transform:scale(0.9) translate(4px,4px);
 }
 .pet-bubble.side-left.visible{transform:scale(1) translate(0,0);}
+.pet-bubble.visible{opacity:1;}
 html[data-mode="light"] .pet-bubble{background:var(--fg-light);color:var(--bg-light);}
 .pet-bubble.thinking{opacity:.3;}
 
@@ -592,19 +593,22 @@ document.addEventListener("DOMContentLoaded", function() {
   /* ── Pet bubble ── */
   let petTimer=null;
   function showPet(text,thinking=false){
-    petBubble.classList.remove('visible','thinking','side-right','side-left');
     if(petTimer){clearTimeout(petTimer);petTimer=null;}
-    // Hangi tarafta — pet X pozisyonuna göre
+    petBubble.style.opacity='';
     const side = petX > 0 ? 'side-left' : 'side-right';
-    setTimeout(()=>{
+    petBubble.classList.remove('visible','thinking','side-right','side-left');
+    requestAnimationFrame(()=>{
       petBubble.textContent=text;
-      petBubble.classList.add('visible', side);
+      petBubble.classList.add(side);
       if(thinking)petBubble.classList.add('thinking');
-    },100);
+      requestAnimationFrame(()=>{
+        petBubble.classList.add('visible');
+      });
+    });
     if(!thinking){
       petTimer=setTimeout(()=>{
-        petBubble.style.opacity='0';
-        setTimeout(()=>{petBubble.classList.remove('visible','side-right','side-left');petBubble.style.opacity='';},400);
+        petBubble.classList.remove('visible');
+        setTimeout(()=>petBubble.classList.remove('side-right','side-left'),350);
       },5000);
     }
   }
@@ -929,6 +933,8 @@ const satietyMap={
 
   /* ── AI feed ── */
   async function feedPet(msg){
+    if(feedPet._busy)return;
+    feedPet._busy=true;
     const isEmoji=isEmojiOnly(msg);
     addMsgToHistory(msg);
     closeBubble();
@@ -948,6 +954,7 @@ const satietyMap={
         applyHungerState();scheduleHungerBubble();
       }
       setTimeout(()=>blob.classList.remove('happy'),1300);
+      feedPet._busy=false;
       return;
     }
 
@@ -969,7 +976,7 @@ const satietyMap={
       blob.classList.remove('thinking');blob.classList.add('happy');
       showPet(reply);
       setTimeout(()=>blob.classList.remove('happy'),1300);
-    } catch(err){blob.classList.remove('thinking');showPet('...');}
+    } catch(err){blob.classList.remove('thinking');showPet('...');} finally{feedPet._busy=false;}
   }
 
   /* ── Drop & collect ── */
@@ -1147,12 +1154,14 @@ const satietyMap={
   // Single robust auth handler
   async function handleSession(session){
     document.body.classList.remove('auth-loading');
-    if(!session||onPetScreen)return;
+    if(!session)return;
     heroScreen.classList.remove('exiting');
     heroScreen.style.display='';
     authScreen.classList.remove('visible');
     await initUserState(session.user);
-    goToPet();
+    // Swipe up artık direkt pet'e gitsin
+    window._goToPetGated = goToPet;
+    // Hero'da kal
   }
 
   // Hide hero until auth resolves
@@ -1189,7 +1198,10 @@ const satietyMap={
   // Hero screen click/tap → show auth
   heroScreen.addEventListener('click',e=>{
     if(e.target.closest('#TOGGLE'))return;
-    showAuth();
+    // Sadece kalbe tıklayınca login aç
+    if(e.target.closest('#heart')||e.target.closest('#heart2')||e.target.closest('path')){
+      showAuth();
+    }
   });
 
   window._goToPetGated=function(){
