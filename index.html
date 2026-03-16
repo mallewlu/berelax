@@ -498,14 +498,14 @@ document.addEventListener("DOMContentLoaded", function() {
     // Swipe up: clear vertical gesture, no drag conflict
     const isSwipeUp=(dy>50&&dx<70)||(velocity>0.4&&dy>25&&dx<70);
     if(isSwipeUp&&!onPetScreen){
-      if(window._goToPetGated)window._goToPetGated();else showAuth();
+      showAuth();
     }
     sy0=null;st0=null;swipeLocked=false;
   },{passive:true});
   let wlock=false;
   document.addEventListener('wheel',e=>{
     if(wlock)return;
-    if(e.deltaY>30&&!onPetScreen){if(window._goToPetGated)window._goToPetGated();else goToPet();wlock=true;setTimeout(()=>wlock=false,800);}
+    if(e.deltaY>30&&!onPetScreen){window.showAuth?window.showAuth():showAuth();wlock=true;setTimeout(()=>wlock=false,800);}
     if(e.deltaY<-30&&onPetScreen){goToHero();wlock=true;setTimeout(()=>wlock=false,800);}
   },{passive:true});
 
@@ -1154,16 +1154,14 @@ const satietyMap={
   });
 
   // Single robust auth handler
-  async function handleSession(session){
+    async function handleSession(session){
     document.body.classList.remove('auth-loading');
-    if(!session)return;
+    if(!session||onPetScreen)return;
     heroScreen.classList.remove('exiting');
     heroScreen.style.display='';
     authScreen.classList.remove('visible');
     await initUserState(session.user);
-    // Swipe up artık direkt pet'e gitsin
-    window._goToPetGated = goToPet;
-    // Hero'da kal
+    goToPet();
   }
 
   // Hide hero until auth resolves
@@ -1201,13 +1199,9 @@ const satietyMap={
   heroScreen.addEventListener('click',e=>{
     if(e.target.closest('#TOGGLE'))return;
     if(e.target.closest('#TILT')){
-      if(window._goToPetGated)window._goToPetGated();else showAuth();
+      showAuth();
     }
   });
-
-  window._goToPetGated=function(){
-    showAuth();
-  };
 
   /* ── Dev bypass (Shift+D) ── */
   document.addEventListener('keydown',e=>{
