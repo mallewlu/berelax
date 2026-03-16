@@ -549,7 +549,7 @@ document.addEventListener("DOMContentLoaded", function() {
       else showPet('...');
     }
   }
-  function goToHero(){
+  window.goToHero = function goToHero(){
     onPetScreen=false;
     heroScreen.style.display='';
     requestAnimationFrame(()=>requestAnimationFrame(()=>heroScreen.classList.remove('exiting')));
