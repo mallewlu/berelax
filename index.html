@@ -83,20 +83,37 @@ html[data-mode="light"] .logo-dark{display:block;}
 }
 @keyframes heartbeat{
   0%,100%{transform:scale(1);}
-  14%{transform:scale(1.08);}
-  28%{transform:scale(0.97);}
-  42%{transform:scale(1.05);}
+  14%{transform:scale(1.032);}
+  28%{transform:scale(0.992);}
+  42%{transform:scale(1.018);}
   70%{transform:scale(1);}
+}
+
+/* Kalbe dokununca: tek vuruş, ekran koyulaşır, baloncuğa geçilir. */
+#heart,#heart2{cursor:pointer;-webkit-tap-highlight-color:transparent;}
+@media (pointer:fine){#heart,#heart2{cursor:none;}}
+.fade{
+  position:fixed;inset:0;z-index:9998;pointer-events:none;
+  background:#080808;opacity:0;transition:opacity .7s ease;
+}
+html.leaving .fade{opacity:1;pointer-events:auto;}
+html.leaving #heart,html.leaving #heart2{animation:beat .5s ease-out forwards;}
+@keyframes beat{
+  0%{transform:scale(1);}
+  35%{transform:scale(1.06);}
+  100%{transform:scale(1);}
 }
 
 @media (prefers-reduced-motion:reduce){
   .logo-scene{animation:none;opacity:1;}
-  #heart,#heart2{animation:none;}
+  #heart,#heart2,html.leaving #heart,html.leaving #heart2{animation:none;}
+  .fade{transition-duration:.2s;}
 }
 </style>
 </head>
 <body>
 <div class="cursor" id="CUR"></div>
+<div class="fade" aria-hidden="true"></div>
 <button class="toggle" id="TOGGLE" aria-label="Toggle mode"></button>
 
 <main class="hero">
@@ -183,6 +200,28 @@ html[data-mode="light"] .logo-dark{display:block;}
   toggle.addEventListener('click', () => {
     html.setAttribute('data-mode', html.getAttribute('data-mode') === 'dark' ? 'light' : 'dark');
   });
+
+  const BUBBLE = '/bubble-genesis.html';
+  let leaving = false;
+  function enterBubble(e) {
+    e.preventDefault();
+    if (leaving) return;
+    leaving = true;
+    html.classList.add('leaving');
+    const reduced = window.matchMedia('(prefers-reduced-motion:reduce)').matches;
+    setTimeout(() => { window.location.href = BUBBLE; }, reduced ? 200 : 700);
+  }
+  ['heart', 'heart2'].forEach(id => {
+    const heart = document.getElementById(id);
+    heart.setAttribute('role', 'link');
+    heart.setAttribute('aria-label', 'Baloncuğa geç');
+    heart.addEventListener('click', enterBubble);
+  });
+  // Geri gelindiğinde (bfcache) sayfa karanlıkta kalmasın.
+  window.addEventListener('pageshow', () => { leaving = false; html.classList.remove('leaving'); });
+  const prefetch = document.createElement('link');
+  prefetch.rel = 'prefetch'; prefetch.href = BUBBLE;
+  document.head.append(prefetch);
 
   function lerp(a, b, t) { return a + (b - a) * t; }
   const MAX_TILT = isTouch ? 8 : 11;
