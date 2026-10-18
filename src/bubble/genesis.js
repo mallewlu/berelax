@@ -1,5 +1,6 @@
 import './bubble.css'
 import { createBubbleExperience } from './core/bubbleExperience.js'
+import { newSeed } from './core/genome.js'
 import { layoutAround, refitOnChange } from './core/layout.js'
 
 // Bubble Genesis: the product page. The bubble itself is the shared core
@@ -9,8 +10,9 @@ import { layoutAround, refitOnChange } from './core/layout.js'
 const canvas = document.querySelector('#bubble-canvas')
 const status = document.querySelector('#status')
 const intro = document.querySelector('.intro')
+const newBubble = document.querySelector('#new-bubble')
 // The page's text keeps clear of the bubble on every screen.
-const ui = [document.querySelector('.brand'), intro, status]
+const ui = [document.querySelector('.brand'), newBubble, intro, status]
 
 let bubble = null
 let stopRefit = () => {}
@@ -27,6 +29,7 @@ try {
   })
 
   stopRefit = refitOnChange(bubble, ui)
+  newBubble.addEventListener('click', () => bubble.birth(newSeed()))
 } catch (error) {
   status.textContent = 'BU CİHAZDA GRAFİK AKIŞI DESTEKLENMİYOR'
   console.error(error)

@@ -45,7 +45,6 @@ body {
 
 .brand,
 .intro,
-.telemetry,
 .status {
   position: fixed;
   z-index: 2;
@@ -54,23 +53,59 @@ body {
 }
 
 .brand {
-  top: max(26px, env(safe-area-inset-top));
-  left: max(26px, env(safe-area-inset-left));
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: rgba(243, 240, 234, 0.76);
-  font-size: 10px;
-  font-weight: 580;
-  letter-spacing: 0.18em;
+  top: max(22px, env(safe-area-inset-top));
+  left: max(22px, env(safe-area-inset-left));
+  display: block;
+  width: 30px;
+  height: 30px;
+  pointer-events: auto;
+  opacity: 0.78;
+  transition: opacity 250ms ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.brand-mark {
-  width: 7px;
-  height: 7px;
-  border: 1px solid rgba(243, 240, 234, 0.7);
-  border-radius: 50%;
-  box-shadow: 0 0 10px rgba(213, 238, 255, 0.32);
+.brand svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill-rule: evenodd;
+  clip-rule: evenodd;
+}
+
+.new-bubble {
+  position: fixed;
+  z-index: 2;
+  top: max(30px, env(safe-area-inset-top));
+  right: max(26px, env(safe-area-inset-right));
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: rgba(243, 240, 234, 0.62);
+  font: inherit;
+  font-size: 9px;
+  font-weight: 580;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 250ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+@media (hover: hover) {
+  .brand:hover {
+    opacity: 1;
+  }
+
+  .new-bubble:hover {
+    color: rgba(243, 240, 234, 0.95);
+  }
+}
+
+.brand:focus-visible,
+.new-bubble:focus-visible {
+  outline: 1px solid rgba(243, 240, 234, 0.6);
+  outline-offset: 4px;
 }
 
 .intro {
@@ -85,10 +120,8 @@ body {
   transform: translateY(4px);
 }
 
-.eyebrow,
 .hint,
-.status,
-.telemetry {
+.status {
   margin: 0;
   color: rgba(243, 240, 234, 0.48);
   font-size: 9px;
@@ -112,34 +145,24 @@ body {
   text-transform: none;
 }
 
-.telemetry {
-  top: max(26px, env(safe-area-inset-top));
-  right: max(26px, env(safe-area-inset-right));
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 3px;
-}
-
 .status {
   right: max(26px, env(safe-area-inset-right));
   bottom: max(32px, calc(env(safe-area-inset-bottom) + 24px));
 }
 
 @media (max-width: 640px) {
-  .telemetry {
-    display: none;
-  }
-
   .status {
     top: max(27px, env(safe-area-inset-top));
     right: max(22px, env(safe-area-inset-right));
     bottom: auto;
   }
 
-  .brand,
   .intro {
     left: max(22px, env(safe-area-inset-left));
+  }
+
+  .new-bubble {
+    right: max(22px, env(safe-area-inset-right));
   }
 
   .intro {

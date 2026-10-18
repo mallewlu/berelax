@@ -22,6 +22,14 @@ export const FILM_OPTICAL_CALIBRATION = Object.freeze({
   environmentRimFloor: 0.18,
   backSurfaceCentre: 0.55,
   backSurfaceRim: 0.84,
+  // Colourful film keeps the earlier vivid look (environment 1.0, ground
+  // fill 0.16, full back surface, premultiplied light). Only near-grey film
+  // (white higher orders, silver first order) takes the transparent look
+  // above. Chroma = (max - min) / max of the film reflectance.
+  vividEnvironmentIntensity: 1.0,
+  vividFloor: 0.16,
+  greyChroma: 0.4,
+  colourChroma: 0.7,
 })
 
 function lobe(x, centre, width) {

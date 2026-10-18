@@ -170,6 +170,10 @@ export const zoomFragmentShader = /* glsl */ `
   #define ENVIRONMENT_RIM_FLOOR ${FILM_OPTICAL_CALIBRATION.environmentRimFloor.toFixed(3)}
   #define BACK_SURFACE_CENTRE ${FILM_OPTICAL_CALIBRATION.backSurfaceCentre.toFixed(3)}
   #define BACK_SURFACE_RIM ${FILM_OPTICAL_CALIBRATION.backSurfaceRim.toFixed(3)}
+  #define VIVID_ENV_INTENSITY ${FILM_OPTICAL_CALIBRATION.vividEnvironmentIntensity.toFixed(3)}
+  #define VIVID_FLOOR ${FILM_OPTICAL_CALIBRATION.vividFloor.toFixed(3)}
+  #define GREY_CHROMA ${FILM_OPTICAL_CALIBRATION.greyChroma.toFixed(3)}
+  #define COLOUR_CHROMA ${FILM_OPTICAL_CALIBRATION.colourChroma.toFixed(3)}
   #define FILM_LUT_MAX_NM ${FILM_LUT_MAX_NM.toFixed(1)}
 
   // Fixed irrational rotation between octaves (breaks axis alignment).
@@ -197,6 +201,7 @@ export const zoomFragmentShader = /* glsl */ `
   uniform vec4 uBlack;                  // genome: onset nm, spot scale, edge, density
   uniform float uEarlyBlack;            // genome: black islands even on thick film
   uniform float uThicknessScale;        // a baby bubble's film is thinner than its parent's
+  uniform float uVivid;                 // 1: colourful film keeps the vivid look
   uniform vec4 uCut;                    // world sphere (centre, radius) hiding the part inside the other bubble
   uniform vec4 uRipple[${MAX_RIPPLES}];   // xyz = local source, w = strength
   uniform float uRippleAge[${MAX_RIPPLES}];
@@ -225,7 +230,17 @@ export const zoomFragmentShader = /* glsl */ `
   // its mirror images are the glints. One light, one frame of reference.
   const vec3 SUN_DIR = vec3(-0.5, 0.55, 0.67);
 
-  vec3 envRadiance(vec3 d, bool frontSurface, float cosI) {
+  // Tone mapping + output colour space by hand (the chunk includes work on
+  // gl_FragColor only, and this shader needs two looks).
+  vec3 toScreen(vec3 c) {
+    #ifdef TONE_MAPPING
+    c = toneMapping(c);
+    #endif
+    return linearToOutputTexel(vec4(c, 1.0)).rgb;
+  }
+
+  // vivid: 0 = transparent look (near-grey film), 1 = vivid look (colourful film).
+  vec3 envRadiance(vec3 d, bool frontSurface, float cosI, float vivid) {
     // Seen from slightly above the horizon (as photographers shoot), the
     // reflected horizon bends into an arc: the strongest "this is a sphere" cue.
     float c = cos(ENV_TILT), s = sin(ENV_TILT);
@@ -235,13 +250,15 @@ export const zoomFragmentShader = /* glsl */ `
     vec3 b = vec3(d.x, -d.z, d.y);
     float u = 0.5 + atan(b.x, b.y) / (2.0 * PI);
     float v = 0.5 + asin(clamp(b.z, -1.0, 1.0)) / PI;
-    vec3 env = texture(uEnv, vec2(u, v)).rgb * uEnvIntensity;
+    float intensity = mix(uEnvIntensity, VIVID_ENV_INTENSITY, vivid);
+    vec3 env = texture(uEnv, vec2(u, v)).rgb * intensity;
     // The dark studio still returns skylight at grazing angles. Keep the
     // centre floor tiny, then raise only the Fresnel rim; a uniform grey floor
     // would lay an opaque-looking veil over the whole sphere.
     float grazing = 1.0 - cosI;
     float lightFloor = mix(ENVIRONMENT_FLOOR, ENVIRONMENT_RIM_FLOOR, grazing * grazing * grazing);
-    env = max(env, vec3(lightFloor * uEnvIntensity));
+    lightFloor = mix(lightFloor, VIVID_FLOOR, vivid);
+    env = max(env, vec3(lightFloor * intensity));
 
     float facing = max(0.0, dot(d, normalize(SUN_DIR)));
     // Sky glow around the sun: gives the bubble a lit side and a darker side.
@@ -352,23 +369,28 @@ export const zoomFragmentShader = /* glsl */ `
     if (!gl_FrontFacing) n = -n;
     float cosI = clamp(abs(dot(n, v)), 0.0, 1.0);
     vec3 R = filmColour(thickness, cosI);
+    // Only near-grey film goes transparent; colourful film keeps its colour.
+    // Judged on the smooth film (no fine detail), so the choice changes over
+    // whole regions, never from pixel to pixel.
+    vec3 Rbase = filmColour(max(4.0, filmThickness * uThicknessScale), cosI);
+    float peak = max(Rbase.r, max(Rbase.g, Rbase.b));
+    float chroma = (peak - min(Rbase.r, min(Rbase.g, Rbase.b))) / (peak + 1e-4);
+    float vivid = smoothstep(GREY_CHROMA, COLOUR_CHROMA, chroma) * uVivid;
     if (!gl_FrontFacing) {
       float grazing = 1.0 - cosI;
       float visibility = mix(BACK_SURFACE_CENTRE, BACK_SURFACE_RIM, grazing * grazing);
-      R *= visibility;
+      R *= mix(visibility, 1.0, vivid);
     }
-    vec3 radiance = envRadiance(reflect(-v, n), gl_FrontFacing, cosI);
+    vec3 radiance = envRadiance(reflect(-v, n), gl_FrontFacing, cosI, vivid);
     float loss = dot(R, vec3(1.0 / 3.0));
-    // Tone mapping and sRGB are non-linear, so a premultiplied linear colour
-    // cannot be transformed and then blended as premultiplied output. Carry a
-    // straight colour through those transforms and let NormalBlending apply
-    // the physical film reflectance afterwards. This is what keeps the centre
-    // transparent instead of turning a few percent reflection into a planet.
     vec3 reflectedRadiance = radiance * R;
-    gl_FragColor = vec4(reflectedRadiance / max(loss, 1e-5), loss);
-
-    #include <tonemapping_fragment>
-    #include <colorspace_fragment>
+    // Transparent look: tone map a straight colour, then weigh it by the film
+    // reflectance (a few percent reflection stays a few percent).
+    vec3 clear = toScreen(reflectedRadiance / max(loss, 1e-5)) * loss;
+    // Vivid look: tone map the reflected light itself, as before.
+    vec3 rich = toScreen(reflectedRadiance);
+    // Both are premultiplied; the material blends One / OneMinusSrcAlpha.
+    gl_FragColor = vec4(mix(clear, rich, vivid), loss);
     // A double bubble: each film is hidden where it lies inside the other.
     if (uCut.w > 0.0 && distance(surfaceW, uCut.xyz) < uCut.w) discard;
   }
@@ -400,6 +422,7 @@ export function createZoomMaterial(envTexture, filmLut) {
       uBlack: { value: new THREE.Vector4(150, 46, 0.1, 0.6) },
       uEarlyBlack: { value: 0 },
       uThicknessScale: { value: 1 },
+      uVivid: { value: 1 },
       uCut: { value: new THREE.Vector4(0, 0, 0, 0) },
       uSquash: { value: new THREE.Vector4(0, 1, 0, 0) },
       uRipple: { value: Array.from({ length: MAX_RIPPLES }, () => new THREE.Vector4(0, 0, 1, 0)) },
@@ -410,6 +433,12 @@ export function createZoomMaterial(envTexture, filmLut) {
     depthWrite: false,
     depthTest: false,
     side: THREE.DoubleSide,
-    blending: THREE.NormalBlending,
+    toneMapped: true,
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.AddEquation,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor,
+    blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
   })
 }
