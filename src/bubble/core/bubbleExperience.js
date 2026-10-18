@@ -8,7 +8,7 @@ import { createFilmFlow } from './filmFlow.js'
 import { createFilmLut } from './filmLut.js'
 import { vortexState } from './filmVortices.js'
 import { createFlowMap } from './flowMap.js'
-import { createGenome, newSeed, thicknessOnClock } from './genome.js'
+import { createGenome, firstSeenSeconds, newSeed, thicknessOnClock } from './genome.js'
 import { createModalTouch } from './modalTouch.js'
 import { GENTLE, createTapSense } from './tapStrength.js'
 import { MAX_RIPPLES, createZoomMaterial } from './shader.js'
@@ -66,7 +66,7 @@ export function createBubbleExperience({
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.1
   const gl = renderer.getContext()
-  const timerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2')
+  let timerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2')
 
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(34, 1, 0.01, 50)
@@ -125,19 +125,23 @@ export function createBubbleExperience({
     return raycaster.ray.clone()
   }
 
+  // Runs a few times per frame: the canvas centre is always NDC (0, 0), so no
+  // layout read and no new objects are needed.
+  const centreNdc = new THREE.Vector2(0, 0)
+  const centreHit = new THREE.Vector3()
   function surfaceDistance() {
-    const rect = canvas.getBoundingClientRect()
-    const ray = rayAt(rect.left + rect.width / 2, rect.top + rect.height / 2)
-    const point = ray.intersectSphere(sphere, new THREE.Vector3())
+    raycaster.setFromCamera(centreNdc, camera)
+    const point = raycaster.ray.intersectSphere(sphere, centreHit)
     return point ? point.distanceTo(camera.position) : Math.max(camera.position.distanceTo(sphere.center) - 1, MIN_GAP)
   }
 
   const zoomFactor = () => SURFACE_GAP_AT_1X / surfaceDistance()
   const viewHeightAtSurface = () => 2 * surfaceDistance() * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))
 
+  const cameraOffset = new THREE.Vector3()
   function keepOutside() {
     // Zoom-to-cursor moves the orbit target; never let the camera enter the film.
-    const offset = camera.position.clone().sub(sphere.center)
+    const offset = cameraOffset.copy(camera.position).sub(sphere.center)
     const length = offset.length()
     if (length < 1 + MIN_GAP) camera.position.copy(sphere.center).addScaledVector(offset, (1 + MIN_GAP) / length)
     camera.near = Math.max(1e-5, surfaceDistance() * 0.05)
@@ -402,7 +406,8 @@ export function createBubbleExperience({
 
   function birth(nextSeed = newSeed(), nextAgeSeconds = 0, nextOwnedAtSeconds = null) {
     genome = createGenome(nextSeed)
-    ageSeconds = Math.max(0, Number(nextAgeSeconds) || 0)
+    // Seen from the moment its upper part shows colour (genome.js).
+    ageSeconds = Math.max(firstSeenSeconds(genome), Number(nextAgeSeconds) || 0)
     ownedAt = nextOwnedAtSeconds === null ? null : THREE.MathUtils.clamp(Number(nextOwnedAtSeconds) || 0, 0, ageSeconds)
     thickness = thicknessOnClock(genome, ageSeconds, ownedAt)
     lastMeanNm = thickness.meanNm
@@ -437,6 +442,7 @@ export function createBubbleExperience({
   // a little less on phones, where it would otherwise feel too close.
   const fillFor = (shortSide) => (shortSide < 500 ? 0.68 : 0.78)
   function resize() {
+    if (disposed) return // the delayed orientation check can land after dispose
     const width = Math.max(1, canvas.clientWidth || window.innerWidth)
     const height = Math.max(1, canvas.clientHeight || window.innerHeight)
     // Only touch the canvas when its size really changed (re-setting it
@@ -514,8 +520,39 @@ export function createBubbleExperience({
     previousFrame = performance.now()
   }, listenerOptions)
   const scheduleFrame = () => {
-    if (!disposed) animationFrame = requestAnimationFrame(frame)
+    if (!disposed && !contextLost) animationFrame = requestAnimationFrame(frame)
   }
+  // The GPU can drop the context (driver reset, memory pressure, many tabs).
+  // On restore three.js re-uploads geometry, the LUT and the horizon from their
+  // CPU copies; the film simulation lives only in render targets, so it is
+  // rebuilt (float support re-probed) and reseeded from the same genome.
+  let contextLost = false
+  canvas.addEventListener('webglcontextlost', (event) => {
+    event.preventDefault() // without this the browser never restores it
+    contextLost = true
+    cancelAnimationFrame(animationFrame)
+    pendingQuery = null // belongs to the lost context
+  }, listenerOptions)
+  // Registered after the renderer's own handler, so three.js is ready here.
+  canvas.addEventListener('webglcontextrestored', () => {
+    if (disposed) return
+    timerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2')
+    const gravity = flowMap.uniforms.uGravity.value.clone()
+    try {
+      // The old flow map is not disposed: its GL objects died with the
+      // context and deleting them would only log errors; GC takes the rest.
+      flowMap = createFlowMap(renderer)
+    } catch (error) {
+      onError?.(error)
+      return
+    }
+    // Same drainage axis as before the loss, so a turned bubble stays consistent.
+    startFilm(flowMap, genome, thickness, gravity)
+    uniforms.uFlow.value = flowMap.texture
+    contextLost = false
+    previousFrame = performance.now()
+    scheduleFrame()
+  }, listenerOptions)
   function frame(now) {
     if (disposed) return
     if (paused || suspended) {

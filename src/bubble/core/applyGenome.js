@@ -1,9 +1,13 @@
+import { applyPalette } from './palette.js'
+
 // Puts a genome's look into a bubble material and its film simulation, so
 // the lab and the variety page draw a given seed identically.
 
 export function applyGenomeLook(uniforms, genome) {
+  applyPalette(uniforms, genome)
   uniforms.uSeed.value = genome.patternSeed
   uniforms.uDetail.value = genome.detail
+  uniforms.uHair.value = genome.hair ?? 0
   uniforms.uBreath.value = genome.breathing
   uniforms.uGrain.value = genome.grain
   uniforms.uOctaveDecay.value = genome.octaveDecay

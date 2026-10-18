@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { FILM_LUT_MAX_NM, FILM_OPTICAL_CALIBRATION } from './filmLut.js'
+import { FILM_IOR, FILM_LUT_MAX_NM, FILM_OPTICAL_CALIBRATION } from './filmLut.js'
 import { MODE_SLOTS } from './modalTouch.js'
 
 export const MAX_RIPPLES = 8
@@ -177,6 +177,10 @@ export const zoomFragmentShader = /* glsl */ `
   #define CLEAR_SATURATION ${FILM_OPTICAL_CALIBRATION.clearSaturation.toFixed(3)}
   #define CLEAR_GAIN ${FILM_OPTICAL_CALIBRATION.clearGain.toFixed(3)}
   #define FILM_LUT_MAX_NM ${FILM_LUT_MAX_NM.toFixed(1)}
+  #define FILM_IOR ${FILM_IOR.toFixed(4)}
+  #define DETAIL_GRAD_NM 800.0        // film gradient (nm/rad) at which detail is at its base strength
+  #define FIBRE_STRETCH 3.0           // filament elongation along iso-thickness lines
+  #define DETAIL_RIDE_NM 30.0         // fine detail up to this size rides on the colour domains
 
   // Fixed irrational rotation between octaves (breaks axis alignment).
   const mat3 OCTAVE_ROTATION = mat3(
@@ -193,8 +197,9 @@ export const zoomFragmentShader = /* glsl */ `
   uniform float uTime;
   uniform uint uSeed;
   uniform float uDetail;
-  uniform float uViewSize;
-  uniform mat3 uEnvRotation;              // visible surface height, local units
+  uniform float uHair;                  // genome: capillarity, filaments break through domain edges
+  uniform float uViewSize;              // visible surface height, local units
+  uniform mat3 uEnvRotation;
   uniform sampler2D uFlow;              // x = film thickness nm, yzw = fine-detail offset
   uniform float uGrain;                 // genome: base frequency of fine texture
   uniform float uOctaveDecay;           // genome: how fast finer octaves fade
@@ -204,6 +209,10 @@ export const zoomFragmentShader = /* glsl */ `
   uniform float uEarlyBlack;            // genome: black islands even on thick film
   uniform float uThicknessScale;        // a baby bubble's film is thinner than its parent's
   uniform float uVivid;                 // 1: colourful film keeps the vivid look
+  uniform float uLevels[8];             // palette thicknesses, nm, ascending (palette.js)
+  uniform float uLevelCount;
+  uniform vec2 uLevelSpan;              // coloured span the palette covers, nm
+  uniform float uPlateau;               // 0: free film, 1: flat colour domains
   uniform vec4 uCut;                    // world sphere (centre, radius) hiding the part inside the other bubble
   uniform vec4 uRipple[${MAX_RIPPLES}];   // xyz = local source, w = strength
   uniform float uRippleAge[${MAX_RIPPLES}];
@@ -312,6 +321,32 @@ export const zoomFragmentShader = /* glsl */ `
     }
   }
 
+  // Stratified film: thickness settles onto the palette levels. Each level
+  // owns the span up to the midpoints with its neighbours (the outer ones
+  // reach the ends of the coloured span); inside it the film is pulled flat
+  // around the level and steepens toward the edges, so the map stays
+  // continuous (no seams) and the flow still moves the domains.
+  float plateauNm(float t) {
+    int count = int(uLevelCount + 0.5);
+    if (uPlateau <= 0.0 || count < 2 || t < uLevelSpan.x || t > uLevelSpan.y) return t;
+    float level = uLevels[0];
+    float below = min(uLevelSpan.x, level);
+    float above = 0.5 * (uLevels[0] + uLevels[1]);
+    for (int i = 1; i < 8; i++) {
+      if (i >= count) break;
+      float l = uLevels[i];
+      if (t < 0.5 * (uLevels[i - 1] + l)) break;
+      level = l;
+      below = 0.5 * (uLevels[i - 1] + l);
+      above = i + 1 < count ? 0.5 * (l + uLevels[i + 1]) : max(uLevelSpan.y, l);
+    }
+    float d = t - level;
+    float span = max(d < 0.0 ? level - below : above - level, 1e-3);
+    // Steepness at the domain edges is capped (~3x): steeper edges magnify
+    // the flow map's texel kinks into visible stair steps at close zoom.
+    return level + sign(d) * span * pow(abs(d) / span, 1.0 + 3.0 * uPlateau);
+  }
+
   void main() {
     vec3 p = normalize(vLocal);
     float rippleEta;
@@ -331,12 +366,40 @@ export const zoomFragmentShader = /* glsl */ `
       gnoise(fineFilm * 1.5 + vec3(0.0, 9.1, 2.7), uSeed + 3u)
     );
 
+    // Fine filaments come from stirring: they gather where the film's
+    // thickness changes (band edges, plume flanks, swirls being mixed) and
+    // thin out over calm, even film, never vanishing (the eye wants texture).
+    // Same average amount of detail, placed by the structure.
+    vec3 gt1 = normalize(cross(p, abs(p.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+    vec3 gt2 = cross(p, gt1);
+    const float GRAD_STEP = 0.02; // radians, ~1.5 flow texels
+    float gh1 = flowSample(uFlow, sphereUv(normalize(p + gt1 * GRAD_STEP))).x - flowSample(uFlow, sphereUv(normalize(p - gt1 * GRAD_STEP))).x;
+    float gh2 = flowSample(uFlow, sphereUv(normalize(p + gt2 * GRAD_STEP))).x - flowSample(uFlow, sphereUv(normalize(p - gt2 * GRAD_STEP))).x;
+    float filmGrad = length(vec2(gh1, gh2)) / (2.0 * GRAD_STEP); // nm per radian
+    // Detail grows with the thickness difference being mixed (floored and
+    // capped so even film keeps a little texture and edges never blow out).
+    float mixing = clamp(filmGrad / DETAIL_GRAD_NM, mix(0.35, 0.7, uHair), mix(2.8, 4.5, uHair));
+
     // ---- Detail cascade: only octaves resolvable at this zoom, zero mean ----
     float freq = uGrain;
     float amp = 16.0;
     vec3 dw = fineFilm + warp * 0.35;
     // Filaments lean along the genome's fibre direction (anisotropic texture).
-    dw += uFibre * dot(dw, uFibre) * 0.7;
+    // Filaments lie along the film's iso-thickness lines (the stretch runs
+    // across the local gradient), so they follow bands, rings and swirls; on
+    // even film they keep the genome's own direction.
+    vec3 gradDir = gt1 * gh1 + gt2 * gh2;
+    float gradLen = length(gradDir);
+    vec3 fibre = uFibre;
+    float align = 0.0;
+    if (gradLen > 1e-3) {
+      vec3 along = normalize(cross(p, gradDir / gradLen));
+      if (dot(along, uFibre) < 0.0) along = -along;
+      align = smoothstep(150.0, 1000.0, filmGrad);
+      fibre = normalize(mix(uFibre, along, align));
+    }
+    dw += fibre * dot(dw, fibre) * mix(0.7, FIBRE_STRETCH * (1.0 + uHair), align);
+    float detailNm = 0.0;
     for (int o = 0; o < MAX_OCTAVES; o++) {
       float cyclesPerPixel = freq * footprint;
       if (cyclesPerPixel > 0.5) break;
@@ -346,12 +409,14 @@ export const zoomFragmentShader = /* glsl */ `
       // level shows clear structure instead of only the view-angle tint.
       float scaleRatio = log2((1.0 / freq) / (uViewSize / 12.0));
       float boost = exp(-scaleRatio * scaleRatio * 0.5);
-      thickness += crisp(n) * (amp + 30.0 * boost) * fade * uDetail;
+      detailNm += crisp(n) * (amp + 30.0 * boost) * fade * uDetail * mixing;
       float a = float(o) * 2.39996;
       dw = OCTAVE_ROTATION * dw + vec3(cos(a), sin(a * 1.31), sin(a)) * n * (0.9 / freq);
       freq *= 2.07;
       amp *= uOctaveDecay;
     }
+
+    thickness += detailNm;
 
     // ---- Black film: appears where the film has really thinned ----
     float cap = max(smoothstep(uBlack.x, uBlack.x * 0.45, filmThickness), uEarlyBlack * 0.6);
@@ -370,6 +435,21 @@ export const zoomFragmentShader = /* glsl */ `
     vec3 v = normalize(uCameraPos - surfaceW);
     if (!gl_FrontFacing) n = -n;
     float cosI = clamp(abs(dot(n, v)), 0.0, 1.0);
+    // Palette domains (plateauNm) hold the optical thickness seen at this
+    // angle, so a chosen hue stays that hue from the centre to the rim
+    // instead of sliding toward thinner colours at oblique view; applied
+    // after the fine detail, which then shows as domain edges.
+    float cosT = sqrt(1.0 - (1.0 - cosI * cosI) / (FILM_IOR * FILM_IOR));
+    // Fine detail rides on top of the flattened domains instead of pushing
+    // their edges: the edges follow the smooth film (a ripple of detail at a
+    // steep domain edge would turn into a row of teeth), and the domains keep
+    // texture inside. Small enough not to slide the hue out of the palette;
+    // only stronger detail moves the edges.
+    // A capillary (hairy) film lets its filaments push the edges: fringed,
+    // hair-like borders by nature.
+    float ride = DETAIL_RIDE_NM * (1.0 - uHair);
+    float riding = clamp(detailNm, -ride, ride);
+    thickness = plateauNm((thickness - riding) * cosT) / cosT + riding;
     vec3 R = filmColour(thickness, cosI);
     // Only near-grey film goes transparent; colourful film keeps its colour.
     // Judged on the smooth film thickness (no fine detail), so the choice
@@ -426,7 +506,12 @@ export function createZoomMaterial(envTexture, filmLut) {
       uBlack: { value: new THREE.Vector4(150, 46, 0.1, 0.6) },
       uEarlyBlack: { value: 0 },
       uThicknessScale: { value: 1 },
+      uHair: { value: 0 },
       uVivid: { value: 1 },
+      uLevels: { value: new Array(8).fill(0) },
+      uLevelCount: { value: 0 },
+      uLevelSpan: { value: new THREE.Vector2() },
+      uPlateau: { value: 0 },
       uCut: { value: new THREE.Vector4(0, 0, 0, 0) },
       uSquash: { value: new THREE.Vector4(0, 1, 0, 0) },
       uRipple: { value: Array.from({ length: MAX_RIPPLES }, () => new THREE.Vector4(0, 0, 1, 0)) },

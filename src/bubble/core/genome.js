@@ -100,7 +100,7 @@ export const RARE_TRAITS = {
   baby: 'yavru baloncuk',
 }
 
-export function createGenome(seed) {
+export function createGenome(seed, { harmony = true, tuning = null } = {}) {
   const id = String(seed ?? '')
   const rand = sfc32(cyrb128(id))
   for (let i = 0; i < 12; i += 1) rand() // warm up
@@ -160,9 +160,12 @@ export function createGenome(seed) {
   const tiltAzimuth = snap('tiltAzimuth', rand()) * Math.PI * 2 * (6 / 7)
 
   // ---- Flow ----
-  const flowSpeed = logLerp(0.012, 0.16, gene('flowSpeed', blend(0.6 * (1 - order) + 0.25 * thermal + 0.15 * humidity - 0.2 * glycerin + 0.1, 0.6)))
+  // Film flow is stirred by drafts and warm-cold differences, slowed by viscosity.
+  const flowSpeed = logLerp(0.012, 0.16, gene('flowSpeed', blend(0.6 * (1 - order) + 0.25 * thermal + 0.15 * draft - 0.2 * glycerin + 0.1, 0.6)))
   const laminar = gene('laminar', blend(0.85 * order + 0.15 * bandStrength, 0.8))
-  const plumes = gene('plumes', blend((humidity - 0.3) * 1.6, 0.5))
+  // Convection plumes: driven by temperature differences and by evaporative
+  // cooling, which dry air strengthens and humid air suppresses.
+  const plumes = gene('plumes', blend((0.65 * thermal + 0.35 * (1 - humidity) - 0.15) * 1.6, 0.5))
   const plumeColumns = 5 + snap('plumeColumns', rand()) * 6
   const swirlScale = logLerp(0.7, 4.5, gene('swirlScale', blend(draft, 0.45)))
   const scaleRatio = lerp(1.5, 3.2, snap('scaleRatio', rand()))
@@ -235,12 +238,13 @@ export function createGenome(seed) {
   if (genes.bandStrength >= 11 && genes.flowSpeed <= 1 && vortices === 0) rare.push('perfectBands')
   if (genes.surfactant >= 11) rare.push('earlyBlack')
   if (genes.glycerin === 12 && genes.birthNm >= 9) rare.push('ghost')
-  if (genes.plumes >= 11 && genes.humidity >= 10) rare.push('plumeStorm')
+  // Strong heating in dry air: evaporation and warmth drive a plume storm.
+  if (genes.plumes >= 11 && genes.thermal >= 10 && genes.humidity <= 4) rare.push('plumeStorm')
   if (genes.size >= 11) rare.push('giant')
   if (genes.size <= 1) rare.push('tiny')
   const earlyBlack = rare.includes('earlyBlack')
 
-  return {
+  const genome = {
     seed: id,
     patternSeed,
     // The bubble as a compact gene string (one base-36 digit per gene).
@@ -299,6 +303,171 @@ export function createGenome(seed) {
     budLongitude,
     rare,
   }
+  return harmony ? harmonize(genome, tuning ? { ...HARMONY, ...tuning } : HARMONY) : genome
+}
+
+// ---- Harmony: order out of the bubble's own chaos ----
+// Left alone, every film phenomenon comes out half-strong (birth conditions
+// crowd the middle) and the bubble reads as a muddle. Real films organise:
+// one process wins and shapes the film, another may ride on it. So the
+// structures compete on the strength the birth conditions gave them:
+// stratified bands (still air), rising plumes (humidity, warmth), marbled
+// swirls (drafts), or, when none is strong, a still drained film. The winner
+// sets the film after its recipe, the runner-up joins at a smaller share.
+//
+// Every bubble then belongs to one of exactly 1,000,000 families: a number
+// in mixed radix over seven readable axes (FAMILY_AXES). Each axis level is
+// mostly chosen by the bubble's own conditions, sometimes freely (FREE share,
+// from the pattern seed), so every family can occur.
+const PHI = (1 + Math.sqrt(5)) / 2
+export const CHARACTERS = ['katman', 'tüy', 'mermer', 'durgun']
+// Kept in step with palette.js COLOUR_SCHEMES (genome.js stays free of the
+// film optics it would import).
+const COLOUR_SCHEME_NAMES = ['benzer', 'zıt', 'bölünmüş zıt', 'üçlü', 'tek ton']
+
+export const FAMILY_AXES = [
+  { key: 'pair', label: 'karakter', names: CHARACTERS.flatMap((lead) => [...CHARACTERS.filter((c) => c !== lead).map((c) => `${lead} + ${c}`), lead]) },
+  { key: 'scheme', label: 'renk', names: COLOUR_SCHEME_NAMES },
+  { key: 'hue', label: 'ton', names: Array.from({ length: 20 }, (_, i) => `${i * 18}°`) },
+  { key: 'scale', label: 'ölçek', names: ['ince', 'sık', 'orta', 'geniş', 'iri'] },
+  { key: 'hair', label: 'kılcallık', names: ['pürüzsüz', 'ince damarlı', 'damarlı', 'kılcal', 'çok kılcal'] },
+  { key: 'composition', label: 'yerleşim', names: ['dengeli', 'ince tepe', 'alt havuz', 'eğik', 'yan akış'] },
+  { key: 'domains', label: 'renk alanı', names: ['yumuşak', 'hafif', 'belirgin', 'net', 'keskin'] },
+]
+export const FAMILY_COUNT = FAMILY_AXES.reduce((n, axis) => n * axis.names.length, 1)
+
+// How each character sets the film so it reads as itself: bands need calm
+// laminar film, plumes need a quiet background to rise through, marble needs
+// turbulence, a still film needs nothing moving. Tempo picks a speed inside
+// the character's own range (tempo is not an axis: it follows the causes).
+const RECIPES = [
+  { bandStrength: 0.9, laminar: 0.9, plumes: 0, warp: 0.1, swirlFraction: 0.06, detail: 0.3, flow: [0.012, 0.035] },
+  { bandStrength: 0.25, laminar: 0.9, plumes: 0.9, warp: 0.08, swirlFraction: 0.05, detail: 0.45, flow: [0.014, 0.045] },
+  { bandStrength: 0.12, laminar: 0.08, plumes: 0, warp: 0.85, swirlFraction: 0.45, detail: 1.1, flow: [0.04, 0.16] },
+  { bandStrength: 0.08, laminar: 0.95, plumes: 0, warp: 0.05, swirlFraction: 0.03, detail: 0.15, flow: [0.012, 0.022] },
+]
+const COMPOSITIONS = [
+  { tilt: 0.03, profile: 1, spread: 0.5 },
+  { tilt: 0.05, profile: 0.5, spread: 0.75 },
+  { tilt: 0.04, profile: 2.2, spread: 0.6 },
+  { tilt: 0.18, profile: 1, spread: 0.55 },
+  { tilt: 0.32, profile: 1.4, spread: 0.7 },
+]
+const DOMAINS = [0.15, 0.35, 0.55, 0.75, 0.92]
+
+// The balance of the harmony step. The variety sheet can try other values
+// live (createGenome's `tuning`); these are the chosen ones.
+export const HARMONY = Object.freeze({
+  secondShare: 0.45, // weight of the runner-up's recipe against the lead's
+  secondFloor: 0.5, // runner-up joins only above this share of the lead's strength
+  stillBias: 0.55, // how readily a bubble with no strong structure stays still
+  ownShare: 0.2, // how much of the bubble's own (pre-harmony) values remains
+  freeShare: 0.08, // chance an axis level is drawn freely instead of by cause (keeps every family possible)
+  plateauScale: 1,
+  schemeWeights: [1, 1, 1, 1, 1], // analogous, complementary, split, triadic, monochrome
+})
+
+function harmonize(g, tune) {
+  const unit = (x, lo, hi) => clamp((x - lo) / (hi - lo), 0, 1)
+  const logUnit = (x, lo, hi) => unit(Math.log(x), Math.log(lo), Math.log(hi))
+  // Independent draws from the pattern seed (the gene stream stays as it was).
+  const pick = (k) => (Math.imul(g.patternSeed ^ Math.imul(k, 0x9e3779b9), 0x85ebca6b) >>> 0) / 4294967296
+  const free = (k) => pick(100 + k) < tune.freeShare
+  const level = (k, cause, size) => (free(k) ? Math.floor(pick(200 + k) * size) : Math.min(size - 1, Math.floor(clamp(cause, 0, 0.9999) * size)))
+
+  // Lead and runner-up, from the strengths the birth conditions gave.
+  const energy = logUnit(g.flowSpeed, 0.012, 0.16)
+  const structures = [
+    g.bandStrength * g.laminar,
+    g.plumes,
+    (0.5 * unit(g.warp, 0.05, 1) + 0.5 * unit(g.swirlFraction, 0.03, 0.6)) * (0.3 + 0.7 * energy),
+  ]
+  const scores = [...structures, tune.stillBias * (1 - Math.max(...structures))]
+  const order = [0, 1, 2, 3].sort((a, b) => scores[b] - scores[a])
+  let lead = order[0]
+  let second = scores[order[1]] >= tune.secondFloor * scores[order[0]] ? order[1] : -1
+  if (free(0)) {
+    lead = Math.floor(pick(1) * 4)
+    const other = Math.floor(pick(2) * 4)
+    second = other === lead ? -1 : other
+  }
+  const pairNames = FAMILY_AXES[0].names
+  const pair = pairNames.indexOf(second < 0 ? CHARACTERS[lead] : `${CHARACTERS[lead]} + ${CHARACTERS[second]}`)
+
+  // Colour: scheme (weighted) and base hue.
+  const total = tune.schemeWeights.reduce((sum, w) => sum + w, 0) || 1
+  let draw = pick(3) * total
+  let scheme = 0
+  while (scheme < COLOUR_SCHEME_NAMES.length - 1 && draw >= tune.schemeWeights[scheme]) draw -= tune.schemeWeights[scheme++]
+  const hue = Math.floor(pick(4) * 20)
+
+  // Scale, capillarity, composition and colour domains follow their causes.
+  const scale = level(1, logUnit(g.swirlScale, 0.7, 4.5), 5)
+  // Capillarity (fine filaments): stirring makes them (flow, drafts,
+  // warm-cold differences), runny film lets them through (little glycerin),
+  // surface elasticity damps them (much surfactant: Marangoni stiffness).
+  const stirring = 0.35 * energy + 0.2 * g.birth.draft + 0.15 * g.birth.thermal + 0.3 * (1 - g.birth.glycerin)
+  const hairLevel = level(2, stirring - 0.25 * (g.birth.surfactant - 0.5), 5)
+  // Placement: drafts tilt the drainage (eğik, yan akış); in still air the
+  // drainage profile follows viscosity: runny film drains fast, thin over
+  // most with a thick pool below (alt havuz); glycerin film drains slowly and
+  // thins only a cap on top (ince tepe); in between it stays even (dengeli).
+  const { draft, glycerin } = g.birth
+  const placeCause = draft > 0.62 ? 0.6 + 0.4 * unit(draft, 0.62, 1) : glycerin > 0.55 ? 0.3 : glycerin < 0.2 ? 0.5 : 0.1
+  const composition = level(3, placeCause, 5)
+  // Micelles (surfactant) make films stratify into flat domains.
+  const domains = level(4, g.birth.surfactant, 5)
+
+  const hair = hairLevel / 4
+
+  const digits = [pair, scheme, hue, scale, hairLevel, composition, domains]
+  const family = digits.reduce((n, d, i) => n * FAMILY_AXES[i].names.length + d, 0)
+
+  // The film after the lead's recipe, the runner-up's at its share, and a
+  // little of the bubble's own values for variety within the family.
+  const a = RECIPES[lead]
+  const b = second < 0 ? null : RECIPES[second]
+  const mixed = (key) => (b ? (a[key] + tune.secondShare * b[key]) / (1 + tune.secondShare) : a[key])
+  const own = (key) => lerp(mixed(key), g[key], tune.ownShare)
+  const swirlScale = logLerp(0.7, 4.5, scale / 4)
+  const bandCount = clamp(Math.round(swirlScale * PHI * PHI), 2, 12)
+  const place = COMPOSITIONS[composition]
+  return {
+    ...g,
+    family,
+    familyDigits: digits,
+    character: CHARACTERS[lead],
+    secondCharacter: second < 0 ? null : CHARACTERS[second],
+    hair,
+    colourScheme: scheme,
+    hueShift: hue * 18,
+    plateau: clamp(DOMAINS[domains] * tune.plateauScale, 0, 1),
+    bandStrength: clamp(own('bandStrength'), 0, 1),
+    laminar: clamp(own('laminar'), 0, 1),
+    plumes: clamp(mixed('plumes'), 0, 1),
+    warp: clamp(own('warp'), 0.05, 1),
+    swirlFraction: clamp(own('swirlFraction'), 0.03, 0.6),
+    // A hairy film carries more fine structure: more detail, finer octaves
+    // that fade later, sharper filament edges, and it is a stirred film, so
+    // it moves a little faster (inside its character's speed range).
+    detail: clamp(own('detail') * lerp(0.75, 1.6, hair), 0.08, 1.4),
+    octaveDecay: lerp(g.octaveDecay, 0.96, 0.7 * hair),
+    crispness: lerp(g.crispness, 0.06, 0.6 * hair),
+    flowSpeed: logLerp(a.flow[0], a.flow[1], clamp(0.75 * energy + 0.25 * hair, 0, 1)),
+    swirlScale,
+    grain: clamp(swirlScale * PHI ** 4, 8, 26),
+    scaleRatio: g.scaleRatio < 2.1 ? PHI : PHI * PHI,
+    bandCount,
+    plumeColumns: clamp(Math.round(3 + bandCount * 0.7), 5, 11),
+    tilt: place.tilt,
+    profile: lerp(place.profile, g.profile, tune.ownShare),
+    spread: lerp(place.spread, g.spread, tune.ownShare),
+  }
+}
+
+// The family's axis levels as words, for labels.
+export function familyWords(genome) {
+  return FAMILY_AXES.map((axis, i) => `${axis.label}: ${axis.names[genome.familyDigits[i]]}`)
 }
 
 // Film thinning (Reynolds drainage law: h ~ t^-1/2): fast at first, then slow.
@@ -364,4 +533,34 @@ export function thicknessOnClock(genome, realSeconds, ownedAtSeconds = null) {
 export function ageForThickness(genome, meanNm) {
   const ratio = genome.birthNm / Math.max(6, meanNm)
   return ratio <= 1 ? 0 : genome.lifeSeconds * (ratio * ratio - 1)
+}
+
+// A bubble is first seen once its upper part shows colour: film thicker than
+// the 680-820 nm fade (filmLut.js greyFromNm) is drawn nearly transparent, so
+// a thick newborn would appear as an empty sphere. Thick films drain fastest
+// in their first seconds (h ~ t^-1/2), so this skips only that moment and
+// keeps the genome (glycerin still makes films thicker) unchanged.
+// Upper part: depth 0.3 from the top (0 = top, 1 = bottom), about the upper
+// third of the picture, same drainage shape as flowMap.js drained().
+export const FIRST_SEEN_NM = 650
+export const FIRST_SEEN_DEPTH = 0.3
+
+export function upperFilmNm(genome, seconds) {
+  const { topNm, bottomNm } = thicknessAt(genome, seconds)
+  return topNm + (bottomNm - topNm) * FIRST_SEEN_DEPTH ** genome.profile
+}
+
+// Age (seconds) at which the upper part reaches FIRST_SEEN_NM; 0 if it
+// already starts there.
+export function firstSeenSeconds(genome) {
+  if (upperFilmNm(genome, 0) <= FIRST_SEEN_NM) return 0
+  let lo = 0
+  let hi = genome.lifeSeconds
+  while (upperFilmNm(genome, hi) > FIRST_SEEN_NM) hi *= 2
+  for (let i = 0; i < 40; i += 1) {
+    const mid = (lo + hi) / 2
+    if (upperFilmNm(genome, mid) > FIRST_SEEN_NM) lo = mid
+    else hi = mid
+  }
+  return hi
 }

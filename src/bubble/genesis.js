@@ -5,7 +5,7 @@ import { layoutAround, refitOnChange } from './core/layout.js'
 
 // Bubble Genesis: the product page. The bubble itself is the shared core
 // (src/bubble/core); this page only keeps its own interface in step with it.
-// (The previous engine, main.js / physics.js / shaders.js, is no longer used.)
+// (Of the previous engine only physics.js is left, kept for its test.)
 
 const canvas = document.querySelector('#bubble-canvas')
 const status = document.querySelector('#status')
@@ -16,6 +16,12 @@ const ui = [document.querySelector('.brand'), newBubble, intro, status]
 
 let bubble = null
 let stopRefit = () => {}
+// An error replaces the button: without a bubble it does nothing, and on
+// phones the message sits in the same corner.
+function showError(message) {
+  status.textContent = message
+  newBubble.hidden = true
+}
 try {
   bubble = createBubbleExperience({
     canvas,
@@ -24,14 +30,14 @@ try {
       intro.classList.add('is-quiet')
     },
     onError() {
-      status.textContent = 'GÖRSEL ORTAM YÜKLENEMEDİ'
+      showError('GÖRSEL ORTAM YÜKLENEMEDİ')
     },
   })
 
   stopRefit = refitOnChange(bubble, ui)
   newBubble.addEventListener('click', () => bubble.birth(newSeed()))
 } catch (error) {
-  status.textContent = 'BU CİHAZDA GRAFİK AKIŞI DESTEKLENMİYOR'
+  showError('BU CİHAZDA GRAFİK AKIŞI DESTEKLENMİYOR')
   console.error(error)
 }
 
