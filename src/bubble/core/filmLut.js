@@ -24,12 +24,18 @@ export const FILM_OPTICAL_CALIBRATION = Object.freeze({
   backSurfaceRim: 0.84,
   // Colourful film keeps the earlier vivid look (environment 1.0, ground
   // fill 0.16, full back surface, premultiplied light). Only near-grey film
-  // (white higher orders, silver first order) takes the transparent look
-  // above. Chroma = (max - min) / max of the film reflectance.
+  // takes the transparent look above: the silver/black first order below
+  // ~120 nm and the pale higher orders above ~750 nm. Judged by thickness,
+  // not by chroma: chroma dips at every hue change inside the colourful
+  // orders, which drew dark grey stripes between the colours.
   vividEnvironmentIntensity: 1.0,
   vividFloor: 0.16,
-  greyChroma: 0.4,
-  colourChroma: 0.7,
+  colourFromNm: [90, 140],
+  greyFromNm: [680, 820],
+  // The transparent look keeps the film's faint hue instead of a grey veil:
+  // colour spread around its own grey is multiplied, light is lowered.
+  clearSaturation: 3.0,
+  clearGain: 0.6,
 })
 
 function lobe(x, centre, width) {

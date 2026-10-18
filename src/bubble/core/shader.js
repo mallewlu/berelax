@@ -172,8 +172,10 @@ export const zoomFragmentShader = /* glsl */ `
   #define BACK_SURFACE_RIM ${FILM_OPTICAL_CALIBRATION.backSurfaceRim.toFixed(3)}
   #define VIVID_ENV_INTENSITY ${FILM_OPTICAL_CALIBRATION.vividEnvironmentIntensity.toFixed(3)}
   #define VIVID_FLOOR ${FILM_OPTICAL_CALIBRATION.vividFloor.toFixed(3)}
-  #define GREY_CHROMA ${FILM_OPTICAL_CALIBRATION.greyChroma.toFixed(3)}
-  #define COLOUR_CHROMA ${FILM_OPTICAL_CALIBRATION.colourChroma.toFixed(3)}
+  #define COLOUR_FROM_NM vec2(${FILM_OPTICAL_CALIBRATION.colourFromNm.map((x) => x.toFixed(1)).join(', ')})
+  #define GREY_FROM_NM vec2(${FILM_OPTICAL_CALIBRATION.greyFromNm.map((x) => x.toFixed(1)).join(', ')})
+  #define CLEAR_SATURATION ${FILM_OPTICAL_CALIBRATION.clearSaturation.toFixed(3)}
+  #define CLEAR_GAIN ${FILM_OPTICAL_CALIBRATION.clearGain.toFixed(3)}
   #define FILM_LUT_MAX_NM ${FILM_LUT_MAX_NM.toFixed(1)}
 
   // Fixed irrational rotation between octaves (breaks axis alignment).
@@ -370,12 +372,11 @@ export const zoomFragmentShader = /* glsl */ `
     float cosI = clamp(abs(dot(n, v)), 0.0, 1.0);
     vec3 R = filmColour(thickness, cosI);
     // Only near-grey film goes transparent; colourful film keeps its colour.
-    // Judged on the smooth film (no fine detail), so the choice changes over
-    // whole regions, never from pixel to pixel.
-    vec3 Rbase = filmColour(max(4.0, filmThickness * uThicknessScale), cosI);
-    float peak = max(Rbase.r, max(Rbase.g, Rbase.b));
-    float chroma = (peak - min(Rbase.r, min(Rbase.g, Rbase.b))) / (peak + 1e-4);
-    float vivid = smoothstep(GREY_CHROMA, COLOUR_CHROMA, chroma) * uVivid;
+    // Judged on the smooth film thickness (no fine detail), so the choice
+    // changes over whole regions, never from pixel to pixel or between hues.
+    float baseNm = max(4.0, filmThickness * uThicknessScale);
+    float vivid = smoothstep(COLOUR_FROM_NM.x, COLOUR_FROM_NM.y, baseNm)
+      * (1.0 - smoothstep(GREY_FROM_NM.x, GREY_FROM_NM.y, baseNm)) * uVivid;
     if (!gl_FrontFacing) {
       float grazing = 1.0 - cosI;
       float visibility = mix(BACK_SURFACE_CENTRE, BACK_SURFACE_RIM, grazing * grazing);
@@ -387,6 +388,9 @@ export const zoomFragmentShader = /* glsl */ `
     // Transparent look: tone map a straight colour, then weigh it by the film
     // reflectance (a few percent reflection stays a few percent).
     vec3 clear = toScreen(reflectedRadiance / max(loss, 1e-5)) * loss;
+    // Pale film reads as a faint tint, never as a flat grey.
+    float clearGrey = dot(clear, vec3(1.0 / 3.0));
+    clear = max(vec3(clearGrey) + (clear - clearGrey) * CLEAR_SATURATION, 0.0) * CLEAR_GAIN;
     // Vivid look: tone map the reflected light itself, as before.
     vec3 rich = toScreen(reflectedRadiance);
     // Both are premultiplied; the material blends One / OneMinusSrcAlpha.
