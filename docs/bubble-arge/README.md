@@ -4,7 +4,9 @@ Baloncuğa eklenen her özellik önce burada denenir, ölçülür ve değerlendi
 
 ## Link
 
-https://www.berelax.space/bubble-arge/?olcum=1&seed=65ad1f24806f4b44
+https://www.berelax.space/meetbubble/?olcum=1&seed=65ad1f24806f4b44
+
+(Eski adres `/bubble-arge/` buraya yönlenir.)
 
 - `olcum=1`: tören (izleyici dokunmaz, sadece izler) ve ölçüm. Bu parametre yoksa sayfa normal lab olarak açılır.
 - `seed`: herkes aynı baloncuğu görür; sonuçlar cihazlar arasında karşılaştırılabilir.
@@ -13,7 +15,7 @@ https://www.berelax.space/bubble-arge/?olcum=1&seed=65ad1f24806f4b44
 ## Döngü
 
 1. **Ekle.** Yeni özellik törene bir sahne olarak girer: `src/bubble/zoom-lab/measurementShow.js`. Her sahnenin `id`'si ölçümdeki bölüm adıdır. Sahneler değişince rapordaki `version` artırılır.
-2. **Yayınla.** `node scripts/build-bubble-arge.mjs` sayfayı `public/bubble-arge/` içine derler. Ardından commit atılır ve main'e push edilir; Vercel yayınlar. Link değişmez.
+2. **Yayınla.** `node scripts/build-bubble-arge.mjs` sayfayı `public/meetbubble/` içine derler. Ardından commit atılır ve main'e push edilir; Vercel yayınlar. Link değişmez.
 3. **İzlet.** Link test edecek kişilere gönderilir. Kurulum ya da ayar gerekmez.
 4. **Topla.** Her izleme Supabase'deki `public.bubble_olcum` tablosuna tek satır olarak yazılır (`api/olcum.js`). Tabloya yalnızca ekleme yapılabilir; okumak için Supabase SQL editörü kullanılır.
 5. **Değerlendir.** Sonuçlar cihaz cihaz tabloya dökülür ve aşağıdaki sorular yanıtlanır.
@@ -49,16 +51,19 @@ FPS ekranın yenileme hızında tavan yapar. Cihazın ne kadar payı olduğunu `
 |---|---|---|
 | merhaba | Bu bir baloncuk. / Nefes alıyor. | Karanlıktan belirir |
 | dokunus | Dokun. | Dört dokunuş, dalgacıklar |
-| cizim-daire, -ucgen, -kalp, -sonsuz, -yildiz | İz bırak. / Renkler akar. | Zarın üzerine parmakla şekiller çizilir |
-| cevir | Çevir. | Kavisli bir savuruş; bırakınca kendi kendine yavaşlar |
-| yakin-kenar | Yaklaş. | Sağ üst kenara doğru 3.2x yakınlaşıp geri gelir |
+| cizim-daire, -ucgen, -kalp, -sonsuz, -yildiz | Basılı tut, çiz. | Zarın üzerine parmakla şekiller çizilir |
+| cevir | Kaydır, çevir. | Kavisli bir savuruş; bırakınca kendi kendine yavaşlar |
+| yakin-kenar | İki parmakla yaklaş. (masaüstünde: Tekerle yaklaş.) | Sağ üst kenara doğru 3.2x yakınlaşıp geri gelir |
 | yakin-kose | (Yaklaş.) | Sol alt kenara doğru 4.1x yakınlaşıp geri gelir |
-| varyantlar | Her biri farklı. | Sekiz farklı baloncuk yarımşar saniye görünür, sonra ilk baloncuğa dönülür |
-| son-nefes | Bazen patlar. | Sessiz bir an |
-| patlama | Üzülme. / Yenisi doğar. | Zar bir noktadan yırtılır; parlak kenar ve damlacıklar |
-| dogum | İşte yenisi. | Yeni baloncuk bir noktadan büyüyerek doğar |
+| varyantlar | Her biri farklı. | Baloncuk yavaşça dönerken yerini, boyunu ve hareketini bozmadan sırayla sekiz farklı baloncuğa dönüşür, sonra ilkine döner |
+| son-nefes | (yazı yok) | Sessiz bir an |
+| patlama | Patlar. | Zar en ince yerinden ~70 ms'de yırtılır; düzensiz kenar, ışığı yansıtan damlacıklar |
+| dogum | Yenisi doğar. | Yeni baloncuk bir noktadan büyüyerek doğar |
 | (kapasite) | Bir an. / Cihazına bakıyoruz. | Karanlığın arkasında kare maliyeti ölçülür |
-| (kapanış) | Teşekkürler. / Şimdi sıra sende. | Baloncuk geri gelir, artık dokunulabilir |
+| (sıra sende) | Şimdi sıra sende. → Dokun. → Basılı tut, çiz. → Kaydır, çevir. → İki parmakla yaklaş. → Serbestsin. | Her talimat kişi hareketi yapana kadar (en çok 8 sn) bekler; sonra 10 sn serbest |
+| (kapanış) | Teşekkürler. | |
+
+**Sıra sende verisi** (ayrı satır, `stage = 'deneyim'`, gösteriyle aynı `run`): her adım için yapıldı mı, kaç ms'de, kaç dokunuş, kaç başka hareket, çizim uzunluğu/hızı (baloncuk yarıçapı cinsinden), çevirme uzunluğu/hızı, ulaşılan en büyük yakınlık ve o adımdaki fps/p95/en uzun kare. Serbest bölüm: ilk hareket ve hareket sayıları. Parmağın izi, konum, isim tutulmaz.
 
 Kurgu, tören yönetmeni rolündeki bir ajanın senaryosundan uyarlandı. Metinleri Lu sadeleştirdi: kısa ve öz olmalı, duygu sömürüsü yok.
 
@@ -66,5 +71,7 @@ Kurgu, tören yönetmeni rolündeki bir ajanın senaryosundan uyarlandı. Metinl
 
 - Bütün hareketler her ekran karesinde yumuşak eğrilerle ilerler. Hızlanma her zaman yavaş başlar; ani hareket yok.
 - Şekiller, baloncuğun ekrandaki gerçek konumuna ve boyutuna göre çizilir; bu yüzden her ekrana uyar.
+- Gösteri boyunca gerçek dokunuşlar engellenir ("Şimdi sıra sende." çıkana kadar); denemeler `touchAttempts` olarak sayılır.
+- Gösteri boyunca üstte "Ekrana dokunma. Sadece izle, tadını çıkar." uyarısı durur.
 - Yazılar sabit bir alt şeritte durur ve baloncuk bu şeridin etrafına yerleşir; yazı baloncuğun üstüne binmez. Tek istisna yakın bakış: baloncuk ekranı doldurduğu için yazı zarın üstünde kalır.
 - Ölçüm sırasında ekran görüntüsü alınmamalı. Ekran görüntüsü kare kaçırır ve kalite ayarlayıcıyı yanıltır.

@@ -1,4 +1,4 @@
-// Bubble Ar-Ge measurement sink (berelax.space/bubble-arge/?olcum=1).
+// Bubble Ar-Ge measurement sink (berelax.space/meetbubble/?olcum=1).
 // Stores each device run in Supabase table bubble_olcum (insert-only RLS).
 // The publishable key is Supabase's public client key (safe to ship); the
 // table only accepts inserts, nobody can read through it.
