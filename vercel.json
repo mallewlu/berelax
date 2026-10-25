@@ -1,0 +1,7 @@
+{
+  "redirects": [
+    { "source": "/meetbubble", "destination": "/meetbubble/", "permanent": false },
+    { "source": "/bubble-arge", "destination": "/meetbubble/", "permanent": false },
+    { "source": "/bubble-arge/", "destination": "/meetbubble/", "permanent": false }
+  ]
+}
