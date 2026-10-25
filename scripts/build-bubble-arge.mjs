@@ -4,10 +4,18 @@
 // there. Run: node scripts/build-bubble-arge.mjs
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { execSync } from 'node:child_process'
+import process from 'node:process'
 import { build } from 'vite'
 
 const root = resolve(import.meta.dirname, '..')
 const outDir = resolve(root, 'public/meetbubble')
+
+// Reports carry the build they came from: the source commit, a + when the
+// working tree differs from it, and the build date.
+const commit = execSync('git rev-parse --short HEAD', { cwd: root }).toString().trim()
+const dirty = execSync('git status --porcelain src', { cwd: root }).toString().trim() ? '+' : ''
+process.env.VITE_BUILD_ID = `${commit}${dirty} ${new Date().toISOString().slice(0, 10)}`
 
 rmSync(outDir, { recursive: true, force: true })
 await build({

@@ -9,8 +9,10 @@ https://www.berelax.space/meetbubble/?olcum=1&seed=65ad1f24806f4b44
 (Eski adres `/bubble-arge/` buraya yönlenir.)
 
 - `olcum=1`: tören (izleyici dokunmaz, sadece izler) ve ölçüm. Bu parametre yoksa sayfa normal lab olarak açılır.
-- `seed`: herkes aynı baloncuğu görür; sonuçlar cihazlar arasında karşılaştırılabilir.
-- Patlamadan sonra doğan baloncuk her cihazda aynıdır: `reference-9`.
+- Parametresiz açılınca her izlemede yeni, rastgele baloncuklar gösterilir. Hangileri gösterildiyse rapora yazılır (`seeds`).
+- `seed=…` verilirse ana baloncuk o olur.
+- `olcum=0` sayfayı normal lab olarak açar. `sira=1` doğrudan ikinci bölüme geçer (test için).
+- Alan sözlüğü, kategoriler ve arşiv: [VERI.md](VERI.md).
 
 ## Döngü
 
@@ -49,6 +51,7 @@ FPS ekranın yenileme hızında tavan yapar. Cihazın ne kadar payı olduğunu `
 
 | Sahne | Yazı | Ne olur |
 |---|---|---|
+| (kapasite) | Bir an. / Cihazına bakıyoruz. | Baloncuk görünmeden, karanlıkta kare maliyeti ölçülür. Tören, ekranın yenileme hızına sığan en yüksek çözünürlükle başlar |
 | merhaba | Bu bir baloncuk. / Nefes alıyor. | Karanlıktan belirir |
 | dokunus | Dokun. | Dört dokunuş, dalgacıklar |
 | cizim-daire, -ucgen, -kalp, -sonsuz, -yildiz | Basılı tut, çiz. | Zarın üzerine parmakla şekiller çizilir |
@@ -59,7 +62,6 @@ FPS ekranın yenileme hızında tavan yapar. Cihazın ne kadar payı olduğunu `
 | son-nefes | (yazı yok) | Sessiz bir an |
 | patlama | Patlar. | Zar en ince yerinden ~70 ms'de yırtılır; düzensiz kenar, ışığı yansıtan damlacıklar |
 | dogum | Yenisi doğar. | Yeni baloncuk bir noktadan büyüyerek doğar |
-| (kapasite) | Bir an. / Cihazına bakıyoruz. | Karanlığın arkasında kare maliyeti ölçülür |
 | (sıra sende) | Şimdi sıra sende. → Dokun. → Basılı tut, çiz. → Kaydır, çevir. → İki parmakla yaklaş. → Serbestsin. | Her talimat kişi hareketi yapana kadar (en çok 8 sn) bekler; sonra 10 sn serbest |
 | (kapanış) | Teşekkürler. | |
 
