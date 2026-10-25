@@ -1,21 +1,20 @@
 // Bubble Ar-Ge measurement sink (berelax.space/bubble-arge/?olcum=1).
 // Stores each device run in Supabase table bubble_olcum (insert-only RLS).
-// Uses the project's existing public Supabase env vars; no extra secret.
+// The publishable key is Supabase's public client key (safe to ship); the
+// table only accepts inserts, nobody can read through it.
 import process from 'node:process'
 
 const MAX_BYTES = 100_000
+const SUPABASE_URL = 'https://kpoeifwhechqofqybrbr.supabase.co'
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_hmiqyHYMqITRcXILbvMsoA_0wPXxp34'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).end()
     return
   }
-  const url = process.env.VITE_SUPABASE_URL
-  const key = process.env.VITE_SUPABASE_ANON_KEY
-  if (!url || !key) {
-    res.status(500).end()
-    return
-  }
+  const url = process.env.VITE_SUPABASE_URL || SUPABASE_URL
+  const key = process.env.VITE_SUPABASE_ANON_KEY || SUPABASE_PUBLISHABLE_KEY
   let report = req.body
   try {
     if (typeof report === 'string') {
@@ -32,7 +31,6 @@ export default async function handler(req, res) {
     method: 'POST',
     headers: {
       apikey: key,
-      Authorization: `Bearer ${key}`,
       'Content-Type': 'application/json',
       Prefer: 'return=minimal',
     },
