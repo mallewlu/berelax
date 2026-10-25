@@ -52,7 +52,8 @@ FPS ekranın yenileme hızında tavan yapar. Cihazın ne kadar payı olduğunu `
 | cizim-daire, -ucgen, -kalp, -sonsuz, -yildiz | İz bırak. / Renkler akar. | Zarın üzerine parmakla şekiller çizilir |
 | cevir | Çevir. | Kavisli bir savuruş; bırakınca kendi kendine yavaşlar |
 | yakin-kenar | Yaklaş. | Sağ üst kenara doğru 3.2x yakınlaşıp geri gelir |
-| yakin-kose | Her biri farklı. | Sol alt kenara doğru 4.1x yakınlaşıp geri gelir |
+| yakin-kose | (Yaklaş.) | Sol alt kenara doğru 4.1x yakınlaşıp geri gelir |
+| varyantlar | Her biri farklı. | Sekiz farklı baloncuk yarımşar saniye görünür, sonra ilk baloncuğa dönülür |
 | son-nefes | Bazen patlar. | Sessiz bir an |
 | patlama | Üzülme. / Yenisi doğar. | Zar bir noktadan yırtılır; parlak kenar ve damlacıklar |
 | dogum | İşte yenisi. | Yeni baloncuk bir noktadan büyüyerek doğar |
