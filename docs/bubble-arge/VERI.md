@@ -15,6 +15,13 @@
 
 İki satır aynı `run` kimliğini taşır. Kişi ikinci bölümü yarıda bırakırsa yalnızca `gosteri` satırı yazılır.
 
+Ar-Ge araç sayfaları (sürüm 6) kendi bölümleriyle yazar:
+
+| `stage` | Sayfa | İçerik |
+|---|---|---|
+| `karsilastirma` | berelax.space/bubble-karsilastir | Aynı baloncuğun üç hâli (bugünkü, doku kapalı, doğumda çizilen doku) için kare maliyeti; `results[].name` hâl + çözünürlük, `bakedOctaves` |
+| `galeri` | berelax.space/bubble-galeri | 40 sabit baloncuk; `results[]`: `seed`, `mark` (guzel / kargasik / null), `alpha` (genlik spektrumu eğimi), `grain` (en ince oktavın enerji payı, %), `colour` (renklilik), `ms` (1x kare maliyeti), `character` |
+
 ## Sürümler
 
 | `version` | Değişen |
@@ -24,6 +31,7 @@
 | 3 | Tören: şekiller, köşeye yakınlaşma, patlama ve doğum |
 | 4 | Varyant geçidi, dokunma kilidi, sıra sende bölümü |
 | 5 | Ölçüm törenden önce yapılıyor, başlangıç çözünürlüğü buna göre seçiliyor (`startScale`, `refreshMs`). Kapasiteye `0.5x` ve `akış adımı` eklendi. Rapora `build` ve `touchPoints` eklendi. Baloncuklar her izlemede rastgele (`seeds`) |
+| 6 | `client` (cihaz ve tarayıcı: Safari / Chrome …). Ekran hızı gerçek ekran hızına yuvarlanır (120/90/60/30 Hz; sürüm 5'te yavaş telefonlar 37 Hz görünüyordu). Dokunma payı 12 px; adımlar önceki hareketi saymaz; "yaklaş" adımı o anki yakınlıktan +0.8 ister. Patlama shader'ı açılışta derlenir; kalite ayarlayıcı 1.1 × kare süresinde düşer |
 
 Sürümler arasındaki sahne sayıları birbirinin yerine kullanılmaz. Karşılaştırma yalnızca aynı sürüm içinde yapılır.
 
@@ -32,6 +40,7 @@ Sürümler arasındaki sahne sayıları birbirinin yerine kullanılmaz. Karşıl
 | Alan | Anlamı |
 |---|---|
 | `build` | Raporu üreten derleme: commit, `+` (çalışma kopyası commit'ten farklıysa) ve tarih |
+| `client` | `{ device, browser }`: iPhone / iPad / Mac … ve Safari / Chrome … (sürüm 6). Safari ve Chrome eşit önemde; iPhone/iPad'de ikisi de WebKit, Mac'te Chrome farklı motor |
 | `device`, `touchPoints` | Tarayıcının kendini tanıtma satırı ve dokunmatik nokta sayısı. iPad'ler kendini Mac gibi tanıtır; `touchPoints > 1` iPad olduğunu gösterir |
 | `gpu` | Ekran kartının adı. Safari bunu gizler, yalnızca "Apple GPU" yazar |
 | `screen`, `dpr`, `native` | Ekran boyutu (CSS px), piksel yoğunluğu, ekranın tam çözünürlüğü (en çok 3) |

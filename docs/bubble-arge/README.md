@@ -4,9 +4,14 @@ Baloncuğa eklenen her özellik önce burada denenir, ölçülür ve değerlendi
 
 ## Link
 
-https://www.berelax.space/meetbubble/?olcum=1&seed=65ad1f24806f4b44
+https://www.berelax.space/meetbubble (tören varsayılan; eski adres `/bubble-arge/` buraya yönlenir)
 
-(Eski adres `/bubble-arge/` buraya yönlenir.)
+Araç sayfaları (sürüm 6):
+- https://www.berelax.space/bubble-karsilastir — aynı baloncuk üç hâliyle yan yana, tek saatle; "ölç" her hâlin kare maliyetini yazar.
+- https://www.berelax.space/bubble-galeri — 40 sabit baloncuk; Lu "güzel / kargaşık" işaretler (ölçüler gönderilene kadar gizli).
+- Yeniden derleme: `node scripts/build-bubble-compare.mjs`.
+
+Hedef cihazlar: iPhone, iPad, Mac; Safari ve Chrome eşit önemde (DECISIONS 2026-10-26).
 
 - `olcum=1`: tören (izleyici dokunmaz, sadece izler) ve ölçüm. Bu parametre yoksa sayfa normal lab olarak açılır.
 - Parametresiz açılınca her izlemede yeni, rastgele baloncuklar gösterilir. Hangileri gösterildiyse rapora yazılır (`seeds`).

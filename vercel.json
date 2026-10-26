@@ -19,6 +19,11 @@
       "source": "/bubble-karsilastir",
       "destination": "/bubble-karsilastir/",
       "permanent": false
+    },
+    {
+      "source": "/bubble-galeri",
+      "destination": "/bubble-galeri/",
+      "permanent": false
     }
   ]
 }
