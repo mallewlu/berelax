@@ -29,6 +29,11 @@
       "source": "/bubblefeed",
       "destination": "/bubblefeed/",
       "permanent": false
+    },
+    {
+      "source": "/bubble-kimlik",
+      "destination": "/bubble-kimlik/",
+      "permanent": false
     }
   ]
 }
