@@ -5,6 +5,8 @@
 //  - bubble-galeri.html  -> /bubble-galeri/ (40 fixed bubbles to mark)
 //  - bubblefeed.html     -> /bubblefeed/ (endless blind vote, one at a time)
 //  - bubble-kimlik.html  -> /bubble-kimlik/ (seed -> still images and a short loop)
+//  - bubble-lab.html     -> /bubble-lab/ (the hub: every tool above; opened by
+//    turning the logo once on the home page)
 // Run: node scripts/build-bubble-compare.mjs
 import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -18,6 +20,7 @@ const PAGES = [
   { html: 'bubble-galeri.html', dir: 'bubble-galeri' },
   { html: 'bubblefeed.html', dir: 'bubblefeed' },
   { html: 'bubble-kimlik.html', dir: 'bubble-kimlik' },
+  { html: 'bubble-lab.html', dir: 'bubble-lab' },
 ]
 
 const commit = execSync('git rev-parse --short HEAD', { cwd: root }).toString().trim()

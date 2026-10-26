@@ -66,6 +66,9 @@ html[data-mode="light"] .toggle{background:var(--fg-light);}
 .logo-scene{opacity:0;animation:rise 2s cubic-bezier(.16,1,.3,1) .4s forwards;}
 .logo-scene svg{width:100%;height:100%;display:block;}
 .logo-inner{width:100%;height:100%;}
+/* Logoyu tutup bir tam tur çevirince Bubble Lab açılır. */
+.logo-scene{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
+.logo-inner.back{transition:transform .6s cubic-bezier(.16,1,.3,1);}
 
 .logo-light{display:block;}
 .logo-dark{display:none;}
@@ -202,15 +205,99 @@ html.leaving #heart,html.leaving #heart2{animation:beat .5s ease-out forwards;}
   });
 
   const BUBBLE = '/bubble-genesis.html';
+  const LAB = '/bubble-lab/';
   let leaving = false;
-  function enterBubble(e) {
-    e.preventDefault();
+  let spun = false; // the logo was turned: the heart's click is not a tap
+  function leaveTo(url) {
     if (leaving) return;
     leaving = true;
     html.classList.add('leaving');
     const reduced = window.matchMedia('(prefers-reduced-motion:reduce)').matches;
-    setTimeout(() => { window.location.href = BUBBLE; }, reduced ? 200 : 700);
+    setTimeout(() => { window.location.href = url; }, reduced ? 200 : 700);
   }
+  function enterBubble(e) {
+    e.preventDefault();
+    if (spun) return;
+    leaveTo(BUBBLE);
+  }
+
+  // Logoyu parmakla tutup derinlemesine çevirmek (dikey eksende, bir para
+  // gibi) Bubble Lab'i açar: bir tam tur. Fırlatılan logo dönmeye devam eder
+  // ve yavaşlar; tur tamamlanmazsa yerine yaylanır.
+  const scene = document.querySelector('.logo-scene');
+  const inner = document.querySelector('.logo-inner');
+  const FULL = 2 * Math.PI;
+  let turn = null;
+  let angle = 0, velocity = 0, coasting = 0;
+  function show() {
+    inner.style.transform = `perspective(900px) rotateY(${angle.toFixed(4)}rad)`;
+  }
+  function settle() {
+    // The same pose, nearest to rest, so the spring-back takes the short way.
+    if (Math.abs(angle) > Math.PI) {
+      angle -= Math.sign(angle) * FULL;
+      show();
+      void inner.offsetWidth;
+    }
+    inner.classList.add('back');
+    angle = 0;
+    show();
+  }
+  function done() {
+    if (Math.abs(angle) < FULL) return false;
+    turn = null;
+    cancelAnimationFrame(coasting);
+    leaveTo(LAB);
+    return true;
+  }
+  scene.addEventListener('pointerdown', e => {
+    if (leaving || !e.isPrimary) return;
+    cancelAnimationFrame(coasting);
+    // A half-finished spring-back continues from where the logo is now.
+    const m = getComputedStyle(inner).transform;
+    if (inner.classList.contains('back') && m && m !== 'none') {
+      const t = new DOMMatrixReadOnly(m);
+      angle = Math.atan2(-t.m13, t.m11);
+    }
+    inner.classList.remove('back');
+    const r = scene.getBoundingClientRect();
+    turn = { id: e.pointerId, x: e.clientX, t: e.timeStamp, perRad: r.width / Math.PI };
+    velocity = 0;
+    spun = false;
+    show();
+  });
+  window.addEventListener('pointermove', e => {
+    if (!turn || e.pointerId !== turn.id) return;
+    const d = (e.clientX - turn.x) / turn.perRad; // the logo's width = half a turn
+    const dt = Math.max(1, e.timeStamp - turn.t) / 1000;
+    velocity = 0.7 * velocity + 0.3 * (d / dt);
+    turn.x = e.clientX;
+    turn.t = e.timeStamp;
+    angle += d;
+    if (Math.abs(angle) > 0.35) spun = true;
+    show();
+    done();
+  });
+  function release(e) {
+    if (!turn || e.pointerId !== turn.id) return;
+    // A finger that stopped before lifting does not fling.
+    if (e.timeStamp - turn.t > 80) velocity = 0;
+    turn = null;
+    if (Math.abs(velocity) < 1.5) return settle();
+    let last = performance.now();
+    (function coast(now) {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      angle += velocity * dt;
+      velocity *= Math.exp(-dt / 0.6);
+      show();
+      if (done()) return;
+      if (Math.abs(velocity) < 1) return settle();
+      coasting = requestAnimationFrame(coast);
+    })(last);
+  }
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
   ['heart', 'heart2'].forEach(id => {
     const heart = document.getElementById(id);
     heart.setAttribute('role', 'link');
@@ -218,7 +305,14 @@ html.leaving #heart,html.leaving #heart2{animation:beat .5s ease-out forwards;}
     heart.addEventListener('click', enterBubble);
   });
   // Geri gelindiğinde (bfcache) sayfa karanlıkta kalmasın.
-  window.addEventListener('pageshow', () => { leaving = false; html.classList.remove('leaving'); });
+  window.addEventListener('pageshow', () => {
+    leaving = false;
+    html.classList.remove('leaving');
+    inner.classList.remove('back');
+    angle = 0;
+    velocity = 0;
+    inner.style.transform = '';
+  });
   const prefetch = document.createElement('link');
   prefetch.rel = 'prefetch'; prefetch.href = BUBBLE;
   document.head.append(prefetch);

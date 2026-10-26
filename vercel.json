@@ -34,6 +34,11 @@
       "source": "/bubble-kimlik",
       "destination": "/bubble-kimlik/",
       "permanent": false
+    },
+    {
+      "source": "/bubble-lab",
+      "destination": "/bubble-lab/",
+      "permanent": false
     }
   ]
 }
