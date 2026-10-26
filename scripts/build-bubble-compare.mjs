@@ -3,6 +3,7 @@
 //  - bubble-compare.html -> /bubble-karsilastir/ (today's bubble, no fine
 //    detail, detail drawn at birth; side by side on one clock)
 //  - bubble-galeri.html  -> /bubble-galeri/ (40 fixed bubbles to mark)
+//  - bubblefeed.html     -> /bubblefeed/ (endless blind vote, one at a time)
 // Run: node scripts/build-bubble-compare.mjs
 import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -14,6 +15,7 @@ const root = resolve(import.meta.dirname, '..')
 const PAGES = [
   { html: 'bubble-compare.html', dir: 'bubble-karsilastir' },
   { html: 'bubble-galeri.html', dir: 'bubble-galeri' },
+  { html: 'bubblefeed.html', dir: 'bubblefeed' },
 ]
 
 const commit = execSync('git rev-parse --short HEAD', { cwd: root }).toString().trim()

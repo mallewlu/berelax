@@ -24,6 +24,11 @@
       "source": "/bubble-galeri",
       "destination": "/bubble-galeri/",
       "permanent": false
+    },
+    {
+      "source": "/bubblefeed",
+      "destination": "/bubblefeed/",
+      "permanent": false
     }
   ]
 }

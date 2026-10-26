@@ -20,6 +20,7 @@ Ar-Ge araç sayfaları (sürüm 6) kendi bölümleriyle yazar:
 | `stage` | Sayfa | İçerik |
 |---|---|---|
 | `karsilastirma` | berelax.space/bubble-karsilastir | Aynı baloncuğun üç hâli (bugünkü, doku kapalı, doğumda çizilen doku) için kare maliyeti; `results[].name` hâl + çözünürlük, `bakedOctaves` |
+| `oy` | berelax.space/bubblefeed | Her oy bir satır (çevrimdışı kalanlar sonrakiyle gelir); `results[]`: `seed`, `vote` (guzel / kargasik / gec), `picked` (rastgele / riskli / tekrar), `engine`, `decideMs`, `zoom`, `renderScale`, `alpha`, `grain`, `colour`, `genome` (karakter, nadir özellikler ve doku ayarları) |
 | `galeri` | berelax.space/bubble-galeri | 40 sabit baloncuk; `results[]`: `seed`, `mark` (guzel / kargasik / null), `alpha` (genlik spektrumu eğimi), `grain` (en ince oktavın enerji payı, %), `colour` (renklilik), `ms` (1x kare maliyeti), `character` |
 
 ## Sürümler

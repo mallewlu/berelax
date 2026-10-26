@@ -9,6 +9,7 @@ https://www.berelax.space/meetbubble (tören varsayılan; eski adres `/bubble-ar
 Araç sayfaları (sürüm 6):
 - https://www.berelax.space/bubble-karsilastir — aynı baloncuk üç hâliyle yan yana, tek saatle; "ölç" her hâlin kare maliyetini yazar.
 - https://www.berelax.space/bubble-galeri — 40 sabit baloncuk; Lu "güzel / kargaşık" işaretler (ölçüler gönderilene kadar gizli).
+- https://www.berelax.space/bubblefeed — sürekli açık kör oylama: tek tek, hareketli baloncuk (yeni motor); "güzel / kargaşık / geç". Yarısı rastgele, yarısı mevcut hipoteze göre riskli, her 12.'si daha önce oylanan (tutarlılık).
 - Yeniden derleme: `node scripts/build-bubble-compare.mjs`.
 
 Hedef cihazlar: iPhone, iPad, Mac; Safari ve Chrome eşit önemde (DECISIONS 2026-10-26).
