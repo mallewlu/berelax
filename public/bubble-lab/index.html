@@ -3,22 +3,31 @@
   <head>
     <meta name="robots" content="noindex, nofollow" />
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
     <meta name="theme-color" content="#080808" />
     <title>Bubble Lab — Be Relax</title>
-    <script type="module" crossorigin src="/bubble-lab/assets/bubble-lab-CHzD0RwD.js"></script>
-    <link rel="stylesheet" crossorigin href="/bubble-lab/assets/bubble-lab-Da2RWY3_.css">
+    <script type="module" crossorigin src="/bubble-lab/assets/bubble-lab-crubSsrX.js"></script>
+    <link rel="stylesheet" crossorigin href="/bubble-lab/assets/bubble-lab-CA1OF5GM.css">
   </head>
   <body>
-    <main id="lab">
-      <p class="lab-lead">Baloncuğun geliştirildiği yer.</p>
-      <nav class="lab-tools" aria-label="Lab araçları">
-        <a href="/bubblefeed/"><small>oyla</small>Bubblefeed<span>Tek baloncuk: güzel mi, kargaşık mı.</span></a>
-        <a href="/bubble-galeri/"><small>oyla</small>Galeri<span>40 sabit baloncuk, toplu işaret.</span></a>
-        <a href="/bubble-karsilastir/"><small>karşılaştır</small>Karşılaştırma<span>Aynı baloncuk dört motorla, yan yana.</span></a>
-        <a href="/bubble-kimlik/"><small>karşılaştır</small>Kimlik<span>Tohumdan simge, kart ve kısa döngü.</span></a>
-        <a href="/meetbubble/"><small>ölç</small>Meet Bubble<span>Gösteri ve rehberli deneyim, cihaz ölçümü.</span></a>
-      </nav>
+    <main id="stage">
+      <div class="pane" id="pane-a"><canvas aria-label="Baloncuk"></canvas><span class="pane-label"></span></div>
+      <div class="pane" id="pane-b" hidden><canvas aria-label="Karşılaştırılan baloncuk"></canvas><span class="pane-label"></span></div>
     </main>
+    <p id="specimen" class="chip"></p>
+    <section id="panel" aria-live="polite"></section>
+    <nav id="modes" aria-label="Deneyler">
+      <button type="button" data-mode="incele">incele</button>
+      <button type="button" data-mode="oyla">oyla</button>
+      <button type="button" data-mode="karsilastir">karşılaştır</button>
+      <span class="modes-gap" aria-hidden="true"></span>
+      <button type="button" data-tool="bubble-kimlik">kimlik</button>
+      <button type="button" data-tool="bubble-galeri">galeri</button>
+      <button type="button" data-tool="meetbubble">ölç</button>
+    </nav>
+    <div id="drawer" hidden>
+      <button id="drawer-close" type="button" aria-label="Kapat">kapat</button>
+      <iframe title="Lab aracı"></iframe>
+    </div>
   </body>
 </html>
