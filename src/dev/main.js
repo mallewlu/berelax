@@ -49,6 +49,7 @@ function setSignup(on) {
   signingUp = on
   $('account-title').textContent = on ? 'hesap oluştur' : 'giriş'
   $('repeat-row').hidden = !on
+  $('code-row').hidden = !on
   $('password').autocomplete = on ? 'new-password' : 'current-password'
   $('auth-submit').textContent = on ? 'hesabı oluştur' : 'giriş yap'
   $('auth-switch').textContent = on ? 'zaten hesabım var' : 'hesap oluştur'
@@ -63,16 +64,18 @@ $('auth-form').addEventListener('submit', async (event) => {
   if (!/^[a-z0-9._-]{3,24}$/.test(username)) { msg.textContent = 'kullanıcı adı 3–24 karakter: harf, rakam, . _ -'; return }
   if (signingUp && password.length < 10) { msg.textContent = 'şifre en az 10 karakter olmalı'; return }
   if (signingUp && password !== $('password2').value) { msg.textContent = 'şifreler aynı değil'; return }
+  const code = $('code').value.trim()
+  if (signingUp && !code) { msg.textContent = 'referans kodunu gir'; return }
   $('auth-submit').disabled = true
   msg.textContent = signingUp ? 'hesap açılıyor…' : 'giriş yapılıyor…'
   try {
     if (signingUp) {
-      const res = await fetch('/api/dev-signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) })
+      const res = await fetch('/api/dev-signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password, code }) })
       if (!res.ok) { msg.textContent = (await res.json().catch(() => null))?.error ?? 'hesap açılamadı'; return }
     }
     const { error } = await supabase.auth.signInWithPassword({ email: devEmail(username), password })
     if (error) { msg.textContent = 'kullanıcı adı veya şifre yanlış'; return }
-    $('password').value = ''; $('password2').value = ''
+    $('password').value = ''; $('password2').value = ''; $('code').value = ''
   } catch { msg.textContent = 'bağlantı kurulamadı' }
   finally { $('auth-submit').disabled = false }
 })

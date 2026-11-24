@@ -4,23 +4,29 @@
 // The account is created confirmed through the admin API, so it needs the
 // service role key, which lives only in Vercel's environment
 // (SUPABASE_SERVICE_ROLE_KEY) and never reaches the browser.
-// Sign-up closes by itself once the first developer exists; set
-// DEV_SIGNUP_OPEN=1 in Vercel to let one more person in.
+// Sign-up needs the reference code Lu set in Vercel (DEV_INVITE_CODE) and
+// closes by itself once the first developer exists; set DEV_SIGNUP_OPEN=1 in
+// Vercel to let one more person in (still with the code).
 import process from 'node:process'
+import { createHash, timingSafeEqual } from 'node:crypto'
 
 const SUPABASE_URL = 'https://kpoeifwhechqofqybrbr.supabase.co'
 const USERNAME = /^[a-z0-9._-]{3,24}$/
 export const devEmail = (username) => `${username}@dev.berelax.space`
+const digest = (value) => createHash('sha256').update(String(value)).digest()
+const sameCode = (given, expected) => timingSafeEqual(digest(given), digest(expected))
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
   const url = process.env.VITE_SUPABASE_URL || SUPABASE_URL
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!service) return res.status(503).json({ error: 'kayıt henüz ayarlanmadı' })
+  const invite = process.env.DEV_INVITE_CODE
+  if (!service || !invite) return res.status(503).json({ error: 'kayıt henüz ayarlanmadı' })
   let body = req.body
   try { if (typeof body === 'string') body = JSON.parse(body) } catch { body = null }
   const username = String(body?.username ?? '').trim().toLowerCase()
   const password = String(body?.password ?? '')
+  if (!sameCode(String(body?.code ?? '').trim(), invite.trim())) return res.status(403).json({ error: 'referans kodu geçersiz' })
   if (!USERNAME.test(username)) return res.status(400).json({ error: 'kullanıcı adı 3–24 karakter: harf, rakam, . _ -' })
   if (password.length < 10 || password.length > 200) return res.status(400).json({ error: 'şifre en az 10 karakter olmalı' })
 
