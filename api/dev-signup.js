@@ -41,13 +41,22 @@ export default async function handler(req, res) {
     method: 'POST', headers,
     body: JSON.stringify({ email: devEmail(username), password, email_confirm: true, user_metadata: { dev_username: username } }),
   })
-  if (!created.ok) return res.status(created.status === 422 ? 409 : 502).json({ error: created.status === 422 ? 'bu kullanıcı adı alınmış' : 'hesap açılamadı' })
+  if (!created.ok) {
+    // Supabase's own error code (no secrets) so the page can say why.
+    const reason = await created.json().catch(() => ({}))
+    const code = String(reason.error_code ?? reason.code ?? created.status)
+    console.error('dev-signup: auth admin create failed', created.status, code, reason.msg ?? reason.message ?? '')
+    const known = { email_exists: 'bu kullanıcı adı alınmış', user_already_exists: 'bu kullanıcı adı alınmış', weak_password: 'şifre yeterince güçlü değil' }
+    return res.status(created.status === 422 ? 409 : 502).json({ error: known[code] ?? `hesap açılamadı (${code})`, code })
+  }
   const user = await created.json()
 
   const added = await rpc('dev_add_member', { p_user_id: user.id, p_username: username })
   if (!added.ok) {
+    const reason = await added.json().catch(() => ({}))
+    console.error('dev-signup: add member failed', added.status, reason.code ?? '', reason.message ?? '')
     await fetch(`${url}/auth/v1/admin/users/${user.id}`, { method: 'DELETE', headers })
-    return res.status(409).json({ error: 'bu kullanıcı adı alınmış' })
+    return res.status(409).json({ error: reason.code === '23505' ? 'bu kullanıcı adı alınmış' : `üyelik eklenemedi (${reason.code ?? added.status})` })
   }
   return res.status(200).json({ ok: true })
 }
