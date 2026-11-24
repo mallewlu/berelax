@@ -48,7 +48,11 @@ async function signup(req, res) {
   if (!USERNAME.test(username)) return res.status(400).json({ error: 'kullanıcı adı 3–24 karakter: harf, rakam, . _ -' })
   if (password.length < 10 || password.length > 200) return res.status(400).json({ error: 'şifre en az 10 karakter olmalı' })
 
-  const headers = { apikey: service, Authorization: `Bearer ${service}`, 'Content-Type': 'application/json' }
+  // New sb_secret_ keys go only in apikey (the gateway turns them into a
+  // service_role token); legacy JWT service keys also need the Bearer header.
+  const headers = service.startsWith('eyJ')
+    ? { apikey: service, Authorization: `Bearer ${service}`, 'Content-Type': 'application/json' }
+    : { apikey: service, 'Content-Type': 'application/json' }
   const rpc = (name, args = {}) => fetch(`${url}/rest/v1/rpc/${name}`, { method: 'POST', headers, body: JSON.stringify(args) })
 
   stage = 'üye sayısı'
