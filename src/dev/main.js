@@ -134,19 +134,19 @@ $('note-save').addEventListener('click', async () => {
   loadNotes()
 })
 
-// ---- daily selection: 12 new bubbles a day, kept in dev_state ----
-const DAILY = 12
-const DAY = 86400000
-const today = () => { const d = new Date(); return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAY) }
+// ---- selection: an endless stream of new bubbles, kept in dev_state ----
+// No daily limit (Lu is the only developer and feeds it at will):
+// a few bubbles are always waiting, topped up after every choice.
+const AHEAD = 12
 let queue = null
+function topUp() {
+  while (queue.queue.length < AHEAD) queue.queue.push({ seed: newSeed(), at: Date.now() })
+}
 async function loadQueue() {
   const { data } = await supabase.from('dev_state').select('value').eq('key', 'secim').maybeSingle()
   const saved = data?.value
-  queue = saved?.version === 1 ? saved : { version: 1, lastDay: today() - 1, queue: [], history: [] }
-  for (let day = queue.lastDay + 1; day <= today(); day++) {
-    for (let i = 0; i < DAILY; i++) queue.queue.push({ seed: newSeed(), day })
-    queue.lastDay = day
-  }
+  queue = saved?.version === 1 ? saved : { version: 1, queue: [], history: [] }
+  topUp()
   await saveQueue()
 }
 async function saveQueue() {
@@ -156,7 +156,8 @@ async function saveQueue() {
 function showQueue() {
   const entry = queue?.queue[0]
   const failed = $('queue-status').dataset.error === '1'
-  $('queue-status').textContent = failed ? 'seçim kaydedilemedi' : entry ? `${queue.queue.length} baloncuk bekliyor` : 'bugünlük bitti'
+  const kept = queue ? queue.history.filter((h) => h.choice === 'seç').length : 0
+  $('queue-status').textContent = failed ? 'seçim kaydedilemedi' : `${kept} seçildi · ${queue?.history.length ?? 0} baktın`
   for (const b of document.querySelectorAll('[data-choice]')) b.disabled = !entry
   $('undo').disabled = !queue?.history.length
   if (entry && bubble) bubble.birth(entry.seed)
@@ -165,12 +166,13 @@ async function choose(choice) {
   if (mode !== 'selection' || !queue?.queue.length) return
   const entry = queue.queue.shift()
   queue.history.push({ ...entry, choice, at: Date.now() })
+  topUp()
   showQueue(); await saveQueue(); showQueue()
 }
 async function undo() {
   const entry = queue?.history.pop()
   if (!entry) return
-  queue.queue.unshift({ seed: entry.seed, day: entry.day })
+  queue.queue.unshift({ seed: entry.seed, at: entry.at })
   showQueue(); await saveQueue(); showQueue()
 }
 for (const b of document.querySelectorAll('[data-choice]')) b.addEventListener('click', () => choose(b.dataset.choice))
