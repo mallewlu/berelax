@@ -17,9 +17,19 @@ const digest = (value) => createHash('sha256').update(String(value)).digest()
 const sameCode = (given, expected) => timingSafeEqual(digest(given), digest(expected))
 
 export default async function handler(req, res) {
+  try {
+    return await signup(req, res)
+  } catch (error) {
+    // Name only: a header error's message would contain the secret key.
+    console.error('dev-signup crashed', error?.name)
+    return res.status(500).json({ error: `hesap açılamadı (${error?.name ?? 'error'})` })
+  }
+}
+
+async function signup(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
   const url = process.env.VITE_SUPABASE_URL || SUPABASE_URL
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
   const invite = process.env.DEV_INVITE_CODE
   if (!service || !invite) return res.status(503).json({ error: 'kayıt henüz ayarlanmadı' })
   let body = req.body
@@ -34,7 +44,8 @@ export default async function handler(req, res) {
   const rpc = (name, args = {}) => fetch(`${url}/rest/v1/rpc/${name}`, { method: 'POST', headers, body: JSON.stringify(args) })
 
   const count = await rpc('dev_member_count')
-  if (!count.ok) return res.status(503).json({ error: 'geliştirici tabloları henüz kurulmadı' })
+  if (count.status === 401 || count.status === 403) return res.status(503).json({ error: `sunucu anahtarı kabul edilmedi (${count.status})` })
+  if (!count.ok) return res.status(503).json({ error: `geliştirici tabloları okunamadı (${count.status})` })
   if (Number(await count.json()) > 0 && process.env.DEV_SIGNUP_OPEN !== '1') return res.status(403).json({ error: 'kayıt kapalı' })
 
   const created = await fetch(`${url}/auth/v1/admin/users`, {
