@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { FILM_IOR, FILM_LUT_MAX_NM, FILM_OPTICAL_CALIBRATION } from './filmLut.js'
 import { MODE_SLOTS } from './modalTouch.js'
 
+export const BAKED_OCTAVES = 4
+
 export const MAX_RIPPLES = 8
 
 export const HASH_NOISE_GLSL = /* glsl */ `
@@ -39,30 +41,37 @@ export const HASH_NOISE_GLSL = /* glsl */ `
   }
 `
 
-// Flow map on the sphere: equirect float texture, filtered by hand so every
-// device (including those without float linear filtering) samples it alike.
+// Flow map on the sphere: equirect texture of float32 bit patterns (RGBA32UI,
+// renderable on every WebGL2 device without extensions), filtered by hand, so
+// every device simulates and samples the very same numbers. Its width is a
+// power of two, so longitude wraps with a bit mask.
 export const FLOW_SAMPLE_GLSL = /* glsl */ `
+  precision highp usampler2D;
   vec2 sphereUv(vec3 d) {
     return vec2(atan(d.x, d.z) / 6.283185307179586 + 0.5, asin(clamp(d.y, -1.0, 1.0)) / 3.141592653589793 + 0.5);
   }
-  vec4 flowSample(sampler2D tex, vec2 uv) {
+  vec4 flowTexel(usampler2D tex, ivec2 c) {
+    return uintBitsToFloat(texelFetch(tex, c, 0));
+  }
+  vec4 flowSample(usampler2D tex, vec2 uv) {
     ivec2 size = textureSize(tex, 0);
     vec2 st = uv * vec2(size) - 0.5;
     vec2 i = floor(st);
     vec2 f = st - i;
-    int x0 = ((int(i.x) % size.x) + size.x) % size.x;
-    int x1 = (x0 + 1) % size.x;
+    int mask = size.x - 1;
+    int x0 = int(i.x) & mask;
+    int x1 = (x0 + 1) & mask;
     int y0 = clamp(int(i.y), 0, size.y - 1);
     int y1 = clamp(int(i.y) + 1, 0, size.y - 1);
     return mix(
-      mix(texelFetch(tex, ivec2(x0, y0), 0), texelFetch(tex, ivec2(x1, y0), 0), f.x),
-      mix(texelFetch(tex, ivec2(x0, y1), 0), texelFetch(tex, ivec2(x1, y1), 0), f.x),
+      mix(flowTexel(tex, ivec2(x0, y0)), flowTexel(tex, ivec2(x1, y0)), f.x),
+      mix(flowTexel(tex, ivec2(x0, y1)), flowTexel(tex, ivec2(x1, y1)), f.x),
       f.y
     );
   }
   // Quadratic B-spline (9 taps): smooth (C1) across texel borders, so the flow
   // never shows straight creases at macro zoom. The solver itself stays linear.
-  vec4 flowSampleSmooth(sampler2D tex, vec2 uv) {
+  vec4 flowSampleSmooth(usampler2D tex, vec2 uv) {
     ivec2 size = textureSize(tex, 0);
     vec2 st = uv * vec2(size);
     vec2 c = floor(st);
@@ -71,13 +80,74 @@ export const FLOW_SAMPLE_GLSL = /* glsl */ `
     vec2 w2 = 0.5 * (0.5 + f) * (0.5 + f);
     vec2 w1 = 1.0 - w0 - w2;
     vec4 sum = vec4(0.0);
+    int mask = size.x - 1;
     for (int y = 0; y < 3; y++) {
       int ty = clamp(int(c.y) - 1 + y, 0, size.y - 1);
       float wy = y == 0 ? w0.y : (y == 1 ? w1.y : w2.y);
       for (int x = 0; x < 3; x++) {
-        int tx = ((int(c.x) - 1 + x) % size.x + size.x) % size.x;
+        int tx = (int(c.x) - 1 + x) & mask;
         float wx = x == 0 ? w0.x : (x == 1 ? w1.x : w2.x);
-        sum += texelFetch(tex, ivec2(tx, ty), 0) * (wx * wy);
+        sum += flowTexel(tex, ivec2(tx, ty)) * (wx * wy);
+      }
+    }
+    return sum;
+  }
+  // Two-phase flow maps (createFlowMap twoPhase): x = thickness (float bits),
+  // yzw = two advected fine-detail offsets as half floats (A.xy | A.z B.x | B.yz).
+  void phaseTexel(usampler2D tex, ivec2 c, out float x, out vec3 a, out vec3 b) {
+    uvec4 t = texelFetch(tex, c, 0);
+    vec2 h1 = unpackHalf2x16(t.y);
+    vec2 h2 = unpackHalf2x16(t.z);
+    vec2 h3 = unpackHalf2x16(t.w);
+    x = uintBitsToFloat(t.x);
+    a = vec3(h1, h2.x);
+    b = vec3(h2.y, h3);
+  }
+  void phaseSample(usampler2D tex, vec2 uv, out vec3 a, out vec3 b) {
+    ivec2 size = textureSize(tex, 0);
+    vec2 st = uv * vec2(size) - 0.5;
+    vec2 i = floor(st);
+    vec2 f = st - i;
+    int mask = size.x - 1;
+    int x0 = int(i.x) & mask;
+    int x1 = (x0 + 1) & mask;
+    int y0 = clamp(int(i.y), 0, size.y - 1);
+    int y1 = clamp(int(i.y) + 1, 0, size.y - 1);
+    float x;
+    vec3 a00, b00, a10, b10, a01, b01, a11, b11;
+    phaseTexel(tex, ivec2(x0, y0), x, a00, b00);
+    phaseTexel(tex, ivec2(x1, y0), x, a10, b10);
+    phaseTexel(tex, ivec2(x0, y1), x, a01, b01);
+    phaseTexel(tex, ivec2(x1, y1), x, a11, b11);
+    a = mix(mix(a00, a10, f.x), mix(a01, a11, f.x), f.y);
+    b = mix(mix(b00, b10, f.x), mix(b01, b11, f.x), f.y);
+  }
+  // The same 9-tap B-spline as flowSampleSmooth, for two-phase maps.
+  float phaseSampleSmooth(usampler2D tex, vec2 uv, out vec3 a, out vec3 b) {
+    ivec2 size = textureSize(tex, 0);
+    vec2 st = uv * vec2(size);
+    vec2 c = floor(st);
+    vec2 f = st - c - 0.5;
+    vec2 w0 = 0.5 * (0.5 - f) * (0.5 - f);
+    vec2 w2 = 0.5 * (0.5 + f) * (0.5 + f);
+    vec2 w1 = 1.0 - w0 - w2;
+    float sum = 0.0;
+    a = vec3(0.0);
+    b = vec3(0.0);
+    int mask = size.x - 1;
+    for (int y = 0; y < 3; y++) {
+      int ty = clamp(int(c.y) - 1 + y, 0, size.y - 1);
+      float wy = y == 0 ? w0.y : (y == 1 ? w1.y : w2.y);
+      for (int x = 0; x < 3; x++) {
+        int tx = (int(c.x) - 1 + x) & mask;
+        float wx = x == 0 ? w0.x : (x == 1 ? w1.x : w2.x);
+        float tx_;
+        vec3 ta, tb;
+        phaseTexel(tex, ivec2(tx, ty), tx_, ta, tb);
+        float w = wx * wy;
+        sum += tx_ * w;
+        a += ta * w;
+        b += tb * w;
       }
     }
     return sum;
@@ -131,9 +201,13 @@ const NOISE_GLSL = HASH_NOISE_GLSL + /* glsl */ `
 export const zoomVertexShader = /* glsl */ `
   precision highp float;
   precision highp int;
+  precision highp usampler2D;
   uniform float uTime;
   uniform uint uSeed;
   uniform vec4 uSquash; // local flow axis, flattening (volume kept)
+  uniform bool uBreathBaked;            // breathing from breathMap.js (same values, once per frame)
+  uniform highp usampler2D uBreathMap;
+  uniform int uBreathWidth;
   out vec3 vLocal;
   out vec3 vBend; // how breathing and touch modes tilt the surface normal
   ${NOISE_GLSL}
@@ -149,10 +223,19 @@ export const zoomVertexShader = /* glsl */ `
     vec3 t1 = normalize(cross(dir, abs(dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
     vec3 t2 = cross(dir, t1);
     const float EPS = 0.02;
-    float b1 = breathing(normalize(dir + t1 * EPS), uTime, uSeed) - breathing(normalize(dir - t1 * EPS), uTime, uSeed);
-    float b2 = breathing(normalize(dir + t2 * EPS), uTime, uSeed) - breathing(normalize(dir - t2 * EPS), uTime, uSeed);
+    float b0, b1, b2;
+    if (uBreathBaked) {
+      vec4 b = uintBitsToFloat(texelFetch(uBreathMap, ivec2(gl_VertexID % uBreathWidth, gl_VertexID / uBreathWidth), 0));
+      b0 = b.x;
+      b1 = b.y;
+      b2 = b.z;
+    } else {
+      b1 = breathing(normalize(dir + t1 * EPS), uTime, uSeed) - breathing(normalize(dir - t1 * EPS), uTime, uSeed);
+      b2 = breathing(normalize(dir + t2 * EPS), uTime, uSeed) - breathing(normalize(dir - t2 * EPS), uTime, uSeed);
+      b0 = breathing(dir, uTime, uSeed);
+    }
     vBend = (t1 * b1 + t2 * b2) / (2.0 * EPS) + modalGrad / (1.0 + modal);
-    vec3 moved = dir * (1.0 + breathing(dir, uTime, uSeed) + modal);
+    vec3 moved = dir * (1.0 + b0 + modal);
     // Oncoming air flattens the bubble slightly along the flow.
     moved = moved * (1.0 + 0.5 * uSquash.w) - uSquash.xyz * dot(moved, uSquash.xyz) * (1.5 * uSquash.w);
     gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(moved, 1.0);
@@ -181,6 +264,7 @@ export const zoomFragmentShader = /* glsl */ `
   #define DETAIL_GRAD_NM 800.0        // film gradient (nm/rad) at which detail is at its base strength
   #define FIBRE_STRETCH 3.0           // filament elongation along iso-thickness lines
   #define DETAIL_RIDE_NM 30.0         // fine detail up to this size rides on the colour domains
+  #define BAKED_OCTAVES ${BAKED_OCTAVES}
 
   // Fixed irrational rotation between octaves (breaks axis alignment).
   const mat3 OCTAVE_ROTATION = mat3(
@@ -200,7 +284,7 @@ export const zoomFragmentShader = /* glsl */ `
   uniform float uHair;                  // genome: capillarity, filaments break through domain edges
   uniform float uViewSize;              // visible surface height, local units
   uniform mat3 uEnvRotation;
-  uniform sampler2D uFlow;              // x = film thickness nm, yzw = fine-detail offset
+  uniform highp usampler2D uFlow;       // float bits: x = film thickness nm, yzw = fine-detail offset
   uniform float uGrain;                 // genome: base frequency of fine texture
   uniform float uOctaveDecay;           // genome: how fast finer octaves fade
   uniform float uCrisp;                 // genome: filament edge softness
@@ -214,9 +298,25 @@ export const zoomFragmentShader = /* glsl */ `
   uniform vec2 uLevelSpan;              // coloured span the palette covers, nm
   uniform float uPlateau;               // 0: free film, 1: flat colour domains
   uniform vec4 uCut;                    // world sphere (centre, radius) hiding the part inside the other bubble
+  uniform vec4 uPop;                    // pop: rupture point (local unit vector), opened angle in rad (w < 0: whole film)
   uniform vec4 uRipple[${MAX_RIPPLES}];   // xyz = local source, w = strength
   uniform float uRippleAge[${MAX_RIPPLES}];
   uniform vec2 uRippleWave;             // genome: speed scale (surface tension), decay scale (viscosity)
+  uniform float uBaked;                 // 1: read the birth-time detail bake (detailBake.js)
+  uniform samplerCube uDetailA;         // coarse octaves' noise
+  uniform samplerCube uDetailB;         // xyz = carried warp chain, w = black-spot noise
+  uniform mat3 uDetailCarry;
+  uniform int uBakedCount;              // octaves in uDetailA (coarse enough for the cube)
+  uniform float uSpotBaked;             // 1: black-spot noise is in uDetailB.w
+  uniform float uAlignScale;            // genome tier: 0 = light bubble, filaments keep their own direction
+  uniform int uOctaveCap;               // genome tier: finest octave drawn
+  #ifdef FULL_DETAIL_BAKE
+  uniform samplerCube uDetailFull;      // the whole detail cascade, baked at birth (createFullDetailBake)
+  uniform float uFullReady;             // 1 once that bake is complete
+  #endif
+  #ifdef FLOW_TWO_PHASE
+  uniform vec2 uPhaseW;                 // weights of the two advected detail layers
+  #endif
 
   in vec3 vLocal;
   in vec3 vBend;
@@ -224,6 +324,15 @@ export const zoomFragmentShader = /* glsl */ `
   #define gl_FragColor pc_fragColor
   ${NOISE_GLSL}
   ${FLOW_SAMPLE_GLSL}
+
+  // Slow domain warp of the fine texture (also baked in detailBake.js).
+  vec3 filmWarp(vec3 x) {
+    return vec3(
+      gnoise(x * 1.5, uSeed + 1u),
+      gnoise(x * 1.5 + vec3(5.2, 1.3, 0.0), uSeed + 2u),
+      gnoise(x * 1.5 + vec3(0.0, 9.1, 2.7), uSeed + 3u)
+    ) * 0.35;
+  }
 
   // Symmetric sharpening: crisp boundaries between thick and thin film while
   // keeping a zero mean, so adding octaves never shifts the average colour.
@@ -355,21 +464,39 @@ export const zoomFragmentShader = /* glsl */ `
     // Film thickness comes from the GPU film simulation (flowMap.js): bands,
     // swirls and everything a finger spread. Fine detail rides a short-memory
     // offset of the same flow.
+  #ifdef FLOW_TWO_PHASE
+    // Fine detail travels with the film (Neyret 2003, advected textures): two
+    // layers carried by the flow, each restarted in turn while its weight is
+    // zero, so detail never springs back and never stretches into streaks.
+    vec3 offA, offB;
+    vec4 flow = vec4(phaseSampleSmooth(uFlow, sphereUv(p), offA, offB), 0.0, 0.0, 0.0);
+    vec3 fineA = normalize(p + offA);
+    vec3 fineB = normalize(p + offB);
+    vec3 fineFilm = normalize(p + uPhaseW.x * offA + uPhaseW.y * offB);
+  #else
     vec4 flow = flowSampleSmooth(uFlow, sphereUv(p));
     vec3 fineFilm = normalize(p + flow.yzw);
+  #endif
     float footprint = max(length(fwidth(fineFilm)), 1e-7);
     float thickness = flow.x;
     float filmThickness = flow.x;
-    vec3 warp = vec3(
-      gnoise(fineFilm * 1.5, uSeed + 1u),
-      gnoise(fineFilm * 1.5 + vec3(5.2, 1.3, 0.0), uSeed + 2u),
-      gnoise(fineFilm * 1.5 + vec3(0.0, 9.1, 2.7), uSeed + 3u)
-    );
 
     // Fine filaments come from stirring: they gather where the film's
     // thickness changes (band edges, plume flanks, swirls being mixed) and
     // thin out over calm, even film, never vanishing (the eye wants texture).
     // Same average amount of detail, placed by the structure.
+  #ifdef LEAN_SHADING
+    // New engine: the film's gradient from screen-space derivatives of the
+    // smooth thickness (no extra flow reads); it only sets how much detail
+    // shows. Filaments keep the genome's direction (the birth-time bake).
+    float filmGrad = length(vec2(dFdx(flow.x), dFdy(flow.x)))
+      / max(0.5 * (length(dFdx(p)) + length(dFdy(p))), 1e-7);
+    float mixing = clamp(filmGrad / DETAIL_GRAD_NM, mix(0.35, 0.7, uHair), mix(2.8, 4.5, uHair));
+    vec3 fibre = uFibre;
+    // The live fallback also compiles with LEAN_SHADING when the full bake
+    // is unavailable; lean shading deliberately does not align to gradients.
+    float align = 0.0;
+  #else
     vec3 gt1 = normalize(cross(p, abs(p.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
     vec3 gt2 = cross(p, gt1);
     const float GRAD_STEP = 0.02; // radians, ~1.5 flow texels
@@ -381,9 +508,6 @@ export const zoomFragmentShader = /* glsl */ `
     float mixing = clamp(filmGrad / DETAIL_GRAD_NM, mix(0.35, 0.7, uHair), mix(2.8, 4.5, uHair));
 
     // ---- Detail cascade: only octaves resolvable at this zoom, zero mean ----
-    float freq = uGrain;
-    float amp = 16.0;
-    vec3 dw = fineFilm + warp * 0.35;
     // Filaments lean along the genome's fibre direction (anisotropic texture).
     // Filaments lie along the film's iso-thickness lines (the stretch runs
     // across the local gradient), so they follow bands, rings and swirls; on
@@ -395,14 +519,73 @@ export const zoomFragmentShader = /* glsl */ `
     if (gradLen > 1e-3) {
       vec3 along = normalize(cross(p, gradDir / gradLen));
       if (dot(along, uFibre) < 0.0) along = -along;
-      align = smoothstep(150.0, 1000.0, filmGrad);
+      align = smoothstep(150.0, 1000.0, filmGrad) * uAlignScale;
       fibre = normalize(mix(uFibre, along, align));
     }
-    dw += fibre * dot(dw, fibre) * mix(0.7, FIBRE_STRETCH * (1.0 + uHair), align);
+  #endif
+    float freq = uGrain;
+    float amp = 16.0;
     float detailNm = 0.0;
-    for (int o = 0; o < MAX_OCTAVES; o++) {
+    float spotNoise;
+  #ifdef FULL_DETAIL_BAKE
+    // Comparison prototype: the detail is drawn into the film once at birth
+    // and rides the flow (fineFilm); mipmaps do the per-zoom fade (one level
+    // coarser than the pixel, like the live fade from 0.12-0.45 cycles/px).
+  #ifdef FLOW_TWO_PHASE
+    // Zero-mean layers: renormalised so the contrast stays even mid-blend.
+    float layered = (uPhaseW.x * texture(uDetailFull, fineA, 1.0).r + uPhaseW.y * texture(uDetailFull, fineB, 1.0).r)
+      * inversesqrt(max(dot(uPhaseW, uPhaseW), 1e-4));
+    detailNm = layered * uDetail * mixing * uFullReady;
+  #else
+    detailNm = texture(uDetailFull, fineFilm, 1.0).r * uDetail * mixing * uFullReady;
+  #endif
+  #ifdef LEAN_SHADING
+    // The far film is seen dimmed through the near one: its fine texture is
+    // not readable there, so it is not drawn (half the detail reads).
+    if (!gl_FrontFacing) detailNm = 0.0;
+  #endif
+    spotNoise = uBaked > 0.5 && uSpotBaked > 0.5 ? textureLod(uDetailB, fineFilm, 0.0).w : gnoise((fineFilm + filmWarp(fineFilm)) * uBlack.y, uSeed + 90u);
+  #else
+    vec3 dw;
+    int first = 0;
+    bool stretched = false;
+    if (uBaked > 0.5) {
+      // Black-spot noise and (on even film) the coarse octaves and warp chain
+      // were computed at birth (detailBake.js); the result matches the live path.
+      // One bilinear sample at full resolution, like the live point sample.
+      vec4 nA = textureLod(uDetailA, fineFilm, 0.0);
+      vec4 nB = textureLod(uDetailB, fineFilm, 0.0);
+      spotNoise = nB.w;
+      // On steep film (align > 0) the filaments follow the live gradient.
+      if (align <= 0.0) {
+        if (uSpotBaked < 0.5) spotNoise = gnoise((fineFilm + filmWarp(fineFilm)) * uBlack.y, uSeed + 90u);
+        for (int o = 0; o < BAKED_OCTAVES; o++) {
+          if (o >= uBakedCount || o >= uOctaveCap) break;
+          float cyclesPerPixel = freq * footprint;
+          if (cyclesPerPixel >= 0.45) break; // fade is 0 from here on
+          float fade = 1.0 - smoothstep(0.12, 0.45, cyclesPerPixel);
+          float scaleRatio = log2((1.0 / freq) / (uViewSize / 12.0));
+          float boost = exp(-scaleRatio * scaleRatio * 0.5);
+          detailNm += crisp(nA[o]) * (amp + 30.0 * boost) * fade * uDetail * mixing;
+          freq *= 2.07;
+          amp *= uOctaveDecay;
+        }
+        dw = uDetailCarry * fineFilm + nB.xyz;
+        first = uBakedCount;
+        stretched = true;
+      }
+    }
+    if (!stretched) {
+      // Live: steep film (filaments follow the current gradient), no bake yet,
+      // or spots too fine for the bake.
+      dw = fineFilm + filmWarp(fineFilm);
+      if (uBaked < 0.5 || uSpotBaked < 0.5) spotNoise = gnoise(dw * uBlack.y, uSeed + 90u);
+      dw += fibre * dot(dw, fibre) * mix(0.7, FIBRE_STRETCH * (1.0 + uHair), align);
+    }
+    for (int o = first; o < MAX_OCTAVES; o++) {
+      if (o >= uOctaveCap) break;
       float cyclesPerPixel = freq * footprint;
-      if (cyclesPerPixel > 0.5) break;
+      if (cyclesPerPixel >= 0.45) break; // fade is 0 from here on
       float fade = 1.0 - smoothstep(0.12, 0.45, cyclesPerPixel);
       float n = gnoise(dw * freq, uSeed + 40u + uint(o));
       // Octaves near ~1/12 of the visible height are lifted, so every zoom
@@ -415,14 +598,14 @@ export const zoomFragmentShader = /* glsl */ `
       freq *= 2.07;
       amp *= uOctaveDecay;
     }
+  #endif
 
     thickness += detailNm;
 
     // ---- Black film: appears where the film has really thinned ----
     float cap = max(smoothstep(uBlack.x, uBlack.x * 0.45, filmThickness), uEarlyBlack * 0.6);
     float threshold = 0.85 - 0.3 * uBlack.w;
-    float spots = smoothstep(threshold - uBlack.z, threshold + uBlack.z,
-      gnoise((fineFilm + warp * 0.35) * uBlack.y, uSeed + 90u)) * cap;
+    float spots = smoothstep(threshold - uBlack.z, threshold + uBlack.z, spotNoise) * cap;
     thickness = mix(thickness, 8.0, spots);
     // Ripples move film: a few nm of thickness change shift the colours in rings.
     thickness += rippleEta * 40.0;
@@ -467,24 +650,75 @@ export const zoomFragmentShader = /* glsl */ `
     vec3 reflectedRadiance = radiance * R;
     // Transparent look: tone map a straight colour, then weigh it by the film
     // reflectance (a few percent reflection stays a few percent).
-    vec3 clear = toScreen(reflectedRadiance / max(loss, 1e-5)) * loss;
-    // Pale film reads as a faint tint, never as a flat grey.
-    float clearGrey = dot(clear, vec3(1.0 / 3.0));
-    clear = max(vec3(clearGrey) + (clear - clearGrey) * CLEAR_SATURATION, 0.0) * CLEAR_GAIN;
+    // (Each look is only computed where it shows.)
+    vec3 clear = vec3(0.0);
+    if (vivid < 1.0) {
+      clear = toScreen(reflectedRadiance / max(loss, 1e-5)) * loss;
+      // Pale film reads as a faint tint, never as a flat grey.
+      float clearGrey = dot(clear, vec3(1.0 / 3.0));
+      clear = max(vec3(clearGrey) + (clear - clearGrey) * CLEAR_SATURATION, 0.0) * CLEAR_GAIN;
+    }
     // Vivid look: tone map the reflected light itself, as before.
-    vec3 rich = toScreen(reflectedRadiance);
+    vec3 rich = vivid > 0.0 ? toScreen(reflectedRadiance) : vec3(0.0);
     // Both are premultiplied; the material blends One / OneMinusSrcAlpha.
     gl_FragColor = vec4(mix(clear, rich, vivid), loss);
     // A double bubble: each film is hidden where it lies inside the other.
     if (uCut.w > 0.0 && distance(surfaceW, uCut.xyz) < uCut.w) discard;
+    // Pop: an irregular tear sweeps from the weakest point. The retracting rim
+    // thickens in the film's own colour; it is not a white effect painted over
+    // the bubble.
+    if (uPop.w >= 0.0) {
+      float beyond = acos(clamp(dot(normalize(p), uPop.xyz), -1.0, 1.0)) - uPop.w;
+      float developed = smoothstep(0.03, 0.28, uPop.w) * (1.0 - smoothstep(2.7, 3.5, uPop.w));
+      // Two noise samples do all the rupture work: they roughen the front and
+      // leave short-lived contour lines / islands behind it. This reads as a
+      // perforated retracting sheet without another mesh or simulation pass.
+      float tearCoarse = gnoise(normalize(p) * 5.0 + uPop.xyz * 2.0, uSeed + 410u);
+      float tearFine = gnoise(normalize(p) * 13.0, uSeed + 411u);
+      float tear = developed * (0.075 * tearCoarse + 0.025 * tearFine);
+      float edge = beyond + tear;
+      float rim = 0.0;
+      if (edge < 0.0) {
+        // Film just behind the front tears into broad islands joined by thin
+        // contour-like ligaments. Remnants disappear rapidly as the rim moves
+        // away, so no detached geometry has to be tracked.
+        float behind = -edge;
+        float fresh = 1.0 - smoothstep(0.04, 0.46, behind);
+        float field = tearCoarse * 0.78 + tearFine * 0.22;
+        float ligament = 1.0 - smoothstep(0.038, 0.105, abs(field));
+        // Broad perforated patches give a restrained water-sheet character,
+        // but live only close behind the dominant soap-film rim.
+        float island = smoothstep(0.08, 0.56, field) * (1.0 - smoothstep(0.08, 0.34, behind));
+        float remnant = max(ligament * 0.82, island) * fresh * developed;
+        if (remnant < 0.08) discard;
+        // Premultiplied colour: fading the torn sheet must fade both channels.
+        float sheet = smoothstep(0.08, 0.48, remnant);
+        gl_FragColor *= sheet;
+        rim = exp(-abs(field) * 38.0) * fresh * 0.75;
+      } else {
+        rim = exp(-edge * 55.0);
+      }
+      // The gathered rim keeps the membrane's colour instead of becoming a
+      // white effect. A little extra opacity makes the curled edge legible.
+      gl_FragColor.rgb *= 1.0 + 1.55 * rim;
+      gl_FragColor.a += (1.0 - gl_FragColor.a) * 0.38 * rim;
+    }
   }
 `
 
-export function createZoomMaterial(envTexture, filmLut) {
+// Unsigned-integer samplers must never see three.js's default (float) texture
+// or the draw fails: this 1x1 stands in until the real map is set.
+const EMPTY_UINT_TEXTURE = new THREE.DataTexture(new Uint32Array(4), 1, 1, THREE.RGBAIntegerFormat, THREE.UnsignedIntType)
+EMPTY_UINT_TEXTURE.needsUpdate = true
+
+// fullDetail: the comparison prototype's detail path (see createFullDetailBake).
+// lean: the new engine's shading (cheaper gradient and far film), with fullDetail.
+// twoPhase: the fine detail travels with the film (needs a twoPhase flow map).
+export function createZoomMaterial(envTexture, filmLut, { fullDetail = false, lean = false, twoPhase = false } = {}) {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     vertexShader: zoomVertexShader,
-    fragmentShader: zoomFragmentShader,
+    fragmentShader: `${fullDetail ? '#define FULL_DETAIL_BAKE\n' : ''}${lean ? '#define LEAN_SHADING\n' : ''}${twoPhase ? '#define FLOW_TWO_PHASE\n' : ''}${zoomFragmentShader}`,
     uniforms: {
       uEnv: { value: envTexture },
       uFilmLut: { value: filmLut },
@@ -497,7 +731,7 @@ export function createZoomMaterial(envTexture, filmLut) {
       uEnvRotation: { value: new THREE.Matrix3() },
       uModeAxis: { value: Array.from({ length: MODE_SLOTS }, () => new THREE.Vector3(0, 0, 1)) },
       uModeAmp: { value: Array.from({ length: MODE_SLOTS }, () => new THREE.Vector4(0, 0, 0, 0)) },
-      uFlow: { value: null },
+      uFlow: { value: EMPTY_UINT_TEXTURE },
       uBreath: { value: 0.0055 },
       uGrain: { value: 14 },
       uOctaveDecay: { value: 0.88 },
@@ -513,10 +747,25 @@ export function createZoomMaterial(envTexture, filmLut) {
       uLevelSpan: { value: new THREE.Vector2() },
       uPlateau: { value: 0 },
       uCut: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uPop: { value: new THREE.Vector4(0, 0, 1, -1) },
       uSquash: { value: new THREE.Vector4(0, 1, 0, 0) },
       uRipple: { value: Array.from({ length: MAX_RIPPLES }, () => new THREE.Vector4(0, 0, 1, 0)) },
       uRippleAge: { value: new Float32Array(MAX_RIPPLES).fill(99) },
       uRippleWave: { value: new THREE.Vector2(1, 1) },
+      uBaked: { value: 0 },
+      uDetailA: { value: null },
+      uDetailB: { value: null },
+      uDetailCarry: { value: new THREE.Matrix3() },
+      uBakedCount: { value: 0 },
+      uSpotBaked: { value: 0 },
+      uAlignScale: { value: 1 },
+      uOctaveCap: { value: 14 },
+      uDetailFull: { value: null },
+      uFullReady: { value: 0 },
+      uPhaseW: { value: new THREE.Vector2(1, 0) },
+      uBreathBaked: { value: false },
+      uBreathMap: { value: EMPTY_UINT_TEXTURE },
+      uBreathWidth: { value: 1 },
     },
     transparent: true,
     depthWrite: false,

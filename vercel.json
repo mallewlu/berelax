@@ -39,6 +39,11 @@
       "source": "/bubble-lab",
       "destination": "/bubble-lab/",
       "permanent": false
+    },
+    {
+      "source": "/dev",
+      "destination": "/dev/",
+      "permanent": false
     }
   ]
 }

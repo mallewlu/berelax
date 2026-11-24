@@ -22,7 +22,7 @@ const UP = new THREE.Vector3(0, 1, 0)
 
 // parent: the bubble mesh (unit sphere in its own space). Returns null when
 // the genome has no baby bubble.
-export function createBud(parent, genome, sphereGeometry) {
+export function createBud(parent, genome, sphereGeometry, { twoPhase = false } = {}) {
   if (!genome.budRadius) return null
   const parentMaterial = parent.material
   const r = genome.budRadius
@@ -32,7 +32,7 @@ export function createBud(parent, genome, sphereGeometry) {
   direction.normalize()
 
   function material() {
-    const m = createZoomMaterial(parentMaterial.uniforms.uEnv.value, parentMaterial.uniforms.uFilmLut.value)
+    const m = createZoomMaterial(parentMaterial.uniforms.uEnv.value, parentMaterial.uniforms.uFilmLut.value, { twoPhase })
     applyGenomeLook(m.uniforms, { ...genome, patternSeed: (genome.patternSeed + 7919) >>> 0 })
     // Smaller bubbles drain faster: a thinner, livelier film.
     m.uniforms.uThicknessScale.value = 0.72
@@ -53,7 +53,7 @@ export function createBud(parent, genome, sphereGeometry) {
   const budWorld = new THREE.Vector3()
   const parentWorld = new THREE.Vector3()
   const parentScale = new THREE.Vector3()
-  const shared = ['uTime', 'uCameraPos', 'uViewSize', 'uEnvRotation', 'uFlow', 'uEnv']
+  const shared = ['uTime', 'uCameraPos', 'uViewSize', 'uEnvRotation', 'uFlow', 'uEnv', 'uPop', 'uPhaseW']
 
   return {
     sync() {
@@ -68,7 +68,7 @@ export function createBud(parent, genome, sphereGeometry) {
         for (const key of shared) {
           const from = parentMaterial.uniforms[key].value
           const to = m.uniforms[key]
-          if (from && from.isVector3) to.value.copy(from)
+          if (from && (from.isVector2 || from.isVector3 || from.isVector4)) to.value.copy(from)
           else if (from && from.isMatrix3) to.value.copy(from)
           else to.value = from
         }

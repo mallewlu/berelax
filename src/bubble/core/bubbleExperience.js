@@ -1,15 +1,20 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
+import { createLightGround } from './lightGround.js'
 import { applyGenomeLook, startFilm, tiltedUp } from './applyGenome.js'
 import { createBody, drift, roomAir, softLimit, squashAt } from './bubbleBody.js'
+import { createBreathMap } from './breathMap.js'
 import { createBud } from './budBubble.js'
+import { createDetailBake, createFullDetailBake } from './detailBake.js'
 import { createFilmFlow } from './filmFlow.js'
 import { createFilmLut } from './filmLut.js'
 import { vortexState } from './filmVortices.js'
-import { createFlowMap } from './flowMap.js'
+import { FLOW_HEIGHT, FLOW_WIDTH, createFlowMap } from './flowMap.js'
 import { createGenome, firstSeenSeconds, newSeed, thicknessOnClock } from './genome.js'
 import { createModalTouch } from './modalTouch.js'
+import { createPopSpray } from './popSpray.js'
+import { ruptureDurationSeconds, weakestFilmPoint } from './ruptureOrigin.js'
 import { GENTLE, createTapSense } from './tapStrength.js'
 import { MAX_RIPPLES, createZoomMaterial } from './shader.js'
 import { createViewMotion } from './viewMotion.js'
@@ -39,6 +44,16 @@ const TURN_WHILE_STIRRING = 0.12 // share of the finger's arc that turns the bub
 const SPIN_DECAY = 2 // s: air slows a spinning bubble
 const AIR_SHARE = 0.2 // finger speed -> air speed carried to the bubble
 
+// A measured fast-frame interval (ms) snapped to the display it comes from:
+// 120, 90 or 60 Hz, or 30 Hz (iOS low power mode). Anything between 60 and
+// ~36 fps is a 60 Hz screen that is not keeping up.
+export function displayInterval(ms) {
+  if (ms < 9.7) return 1000 / 120
+  if (ms < 12.5) return 1000 / 90
+  if (ms < 28) return 1000 / 60
+  return 1000 / 30
+}
+
 function percentile(values, p) {
   if (!values.length) return 0
   const sorted = values.slice().sort((a, b) => a - b)
@@ -53,15 +68,29 @@ export function createBubbleExperience({
   seed = newSeed(),
   initialAgeSeconds = 0,
   initialOwnedAtSeconds = null,
-  environment = '/bubble/env/ufuk.hdr',
+  // 512×256: on the bubble the same as the 2048 original (PSNR ≥ 67 dB,
+  // Ar-Ge/ortam-2026-10-26.md), 34 KB instead of 253 KB gzipped (Lu, 2026-10-26).
+  environment = '/bubble/env/ufuk-512.hdr',
   onFirstTouch,
   onError,
   layout = () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+  bakeDetail = true, // or a cube face size; false: always the live path
+  antialias = true,
+  // Comparison page (bubble-compare.html): 'live' (as is), 'off' (no fine
+  // detail: flow and colours only), 'baked' (all detail drawn at birth) or
+  // 'lean' (the new engine: 'baked' plus cheaper shading and mesh) or 'flow'
+  // ('lean' with the fine detail travelling with the film).
+  detailMode = 'live',
+  // true: no animation loop of its own; the page calls step(now) each frame,
+  // so several bubbles advance on one clock.
+  driven = false,
+  // Lab only: the bubble with the lights on, on a light ground (lightGround.js).
+  light = false,
 } = {}) {
   const lifecycle = new AbortController()
   const listenerOptions = { signal: lifecycle.signal }
   let disposed = false
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true })
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias, alpha: true })
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.1
@@ -73,11 +102,40 @@ export function createBubbleExperience({
   camera.position.set(0, 0, BASE_DISTANCE)
 
   const filmLut = createFilmLut()
-  const bubbleGeometry = new THREE.SphereGeometry(1, 256, 192)
-  const bubbleMaterial = createZoomMaterial(null, filmLut)
+  // The new engine's sphere: the shape is smooth (low-order breathing and
+  // touch modes), so a quarter of the vertices keeps the outline round.
+  const leanEngine = detailMode === 'lean' || detailMode === 'flow'
+  const twoPhase = detailMode === 'flow' || detailMode === 'flow-full'
+  const wantsFullBake = detailMode === 'baked' || leanEngine || detailMode === 'flow-full'
+  const canFullBake = Boolean(gl.getExtension('EXT_color_buffer_float'))
+  const BUBBLE_SEGMENTS = leanEngine ? [128, 96] : [256, 192]
+  const bubbleGeometry = new THREE.SphereGeometry(1, ...BUBBLE_SEGMENTS)
+  const bubbleMaterial = createZoomMaterial(null, filmLut, { fullDetail: wantsFullBake && canFullBake, lean: leanEngine, twoPhase })
   const bubble = new THREE.Mesh(bubbleGeometry, bubbleMaterial)
   scene.add(bubble)
+  const spray = createPopSpray(scene)
   const uniforms = bubble.material.uniforms
+  const darkEnvIntensity = uniforms.uEnvIntensity.value
+  let lightGround = null
+  function setLight(on) {
+    if (Boolean(on) === Boolean(lightGround)) return
+    if (on) lightGround = createLightGround(renderer)
+    else {
+      lightGround.dispose()
+      lightGround = null
+    }
+    // The light pass applies the room's brightness itself (linear target).
+    uniforms.uEnvIntensity.value = on ? 1 : darkEnvIntensity
+  }
+  setLight(light)
+  const draw = () => (lightGround ? lightGround.render(scene, camera) : renderer.render(scene, camera))
+  // Touch devices get the smaller detail maps (memory); finer octaves are
+  // computed live either way, so the picture is the same.
+  const bakeSize = typeof bakeDetail === 'number' ? bakeDetail : matchMedia('(pointer: coarse)').matches ? 512 : 1024
+  let detailBake = bakeDetail ? createDetailBake(renderer, bakeSize) : null
+  const fullBakeSize = matchMedia('(pointer: coarse)').matches ? 1024 : 2048
+  let fullBake = wantsFullBake && canFullBake ? createFullDetailBake(renderer, fullBakeSize) : null
+  if (detailMode === 'off') uniforms.uOctaveCap.value = 0
   let ready = false
   let environmentTexture = null
   new HDRLoader().load(
@@ -92,6 +150,7 @@ export function createBubbleExperience({
       texture.generateMipmaps = false
       environmentTexture = texture
       uniforms.uEnv.value = texture
+      spray.warm(renderer, camera)
       ready = true
     },
     undefined,
@@ -208,19 +267,24 @@ export function createBubbleExperience({
   const film = createFilmFlow()
   let flowMap
   try {
-    flowMap = createFlowMap(renderer)
+    flowMap = createFlowMap(renderer, FLOW_WIDTH, FLOW_HEIGHT, { twoPhase })
   } catch (error) {
     onError?.(error)
     disposed = true
     lifecycle.abort()
     controls.dispose()
+    spray.dispose()
     environmentTexture?.dispose()
+    lightGround?.dispose()
     filmLut.dispose()
+    detailBake?.dispose()
+    fullBake?.dispose()
     bubbleMaterial.dispose()
     bubbleGeometry.dispose()
     renderer.dispose()
     throw error
   }
+  let breathMap = createBreathMap(renderer, bubbleGeometry, BUBBLE_SEGMENTS[0] + 1)
   uniforms.uFlow.value = flowMap.texture
   let filmGrip = 0.85
   const activePointers = new Set()
@@ -404,7 +468,46 @@ export function createBubbleExperience({
   const upTilted = new THREE.Vector3(0, 1, 0)
   const ownAxis = new THREE.Vector3()
 
-  function birth(nextSeed = newSeed(), nextAgeSeconds = 0, nextOwnedAtSeconds = null) {
+  // Frame-time watch (resolution governor below); a birth restarts it.
+  let slowFrames = 0
+  let settledFrames = 0
+  // ---------- Pop and bloom ----------
+  // A pop starts at the live film's weakest region. Once nucleated, a soap
+  // film retracts at nearly constant Taylor-Culick speed; the visible event is
+  // deliberately only a few frames long rather than a slow animation.
+  // A bloom grows a newborn bubble from a point with a soft overshoot.
+  const MIN_POP_SECONDS = 0.045
+  const POP_SWEEP = Math.PI + 0.35 // past the far side, so the rim leaves too
+  const BLOOM_SECONDS = 1.8
+  let popping = null // { t, resolve }
+  let pendingPop = null // a pop waiting for its film copy
+  let blooming = null // { t, seconds, from }
+  const popOrigin = new THREE.Vector3()
+  const popTurn = new THREE.Quaternion()
+  function stepPopAndBloom(dt) {
+    if (popping) {
+      popping.t += dt
+      const p = Math.min(1, popping.t / popping.seconds)
+      uniforms.uPop.value.w = p < 1 ? POP_SWEEP * p : 10
+      if (p >= 1 && popping.resolve) {
+        popping.resolve()
+        popping.resolve = null
+      }
+    }
+    if (blooming) {
+      blooming.t += dt
+      const p = Math.min(1, blooming.t / blooming.seconds)
+      const q = p - 1
+      const grown = 1 + 2.2 * q * q * q + 1.2 * q * q
+      bubble.scale.setScalar(p < 1 ? Math.max(1e-3, blooming.from + (1 - blooming.from) * grown) : 1)
+      if (p >= 1) blooming = null
+    }
+    spray.update(dt, renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))))
+  }
+
+  // keepPose: the new bubble takes the old one's place as it is (turn, spin,
+  // drift), so a sequence of bubbles reads as one calm motion.
+  function birth(nextSeed = newSeed(), nextAgeSeconds = 0, nextOwnedAtSeconds = null, { keepPose = false } = {}) {
     genome = createGenome(nextSeed)
     // Seen from the moment its upper part shows colour (genome.js).
     ageSeconds = Math.max(firstSeenSeconds(genome), Number(nextAgeSeconds) || 0)
@@ -412,6 +515,9 @@ export function createBubbleExperience({
     thickness = thicknessOnClock(genome, ageSeconds, ownedAt)
     lastMeanNm = thickness.meanNm
     applyGenomeLook(uniforms, genome)
+    detailBake?.start(uniforms)
+    fullBake?.start(uniforms)
+    settledFrames = 0
     modal.setDamping(genome.damping)
     filmGrip = genome.grip
     for (const r of uniforms.uRipple.value) r.w = 0
@@ -419,23 +525,40 @@ export function createBubbleExperience({
     film.clear()
     startFilm(flowMap, genome, thickness, upTilted)
     bud?.dispose()
-    bud = createBud(bubble, genome, bubble.geometry)
+    bud = createBud(bubble, genome, bubble.geometry, { twoPhase })
     body = createBody(genome, thickness.meanNm)
     // Ripples run faster on a tauter film and die sooner in a more viscous one.
     uniforms.uRippleWave.value.set(Math.sqrt(body.constants.surfaceTension / 0.029), 1 / (0.8 + 0.6 * genome.birth.glycerin))
-    bubble.quaternion.identity()
-    spin.set(0, 0)
-    airVelocity.set(0, 0, 0)
+    popping = null
+    uniforms.uPop.value.w = -1
+    if (!keepPose) {
+      bubble.quaternion.identity()
+      spin.set(0, 0)
+      airVelocity.set(0, 0, 0)
+    }
     return genome
   }
   birth(seed, initialAgeSeconds, initialOwnedAtSeconds)
 
   // ---------- Resolution governor: hold the frame budget by scaling pixels only ----------
-  const maxScale = Math.min(window.devicePixelRatio || 1, 3)
+  let maxScale = Math.min(window.devicePixelRatio || 1, 3)
   // Never so few pixels that a dense phone screen looks magnified and soft.
-  const minScale = maxScale >= 2.5 ? 1.5 : maxScale >= 2 ? 1.25 : 1
-  let renderScale = Math.min(maxScale, 2)
+  let minScale = maxScale >= 2.5 ? 1.5 : maxScale >= 2 ? 1.25 : 1
+  // Device simulation (lab): a slower GPU (extra offscreen draws per frame)
+  // and another screen density / refresh rate.
+  let simLoad = 1
+  let simHz = 0
+  let simTarget = null
+  let simLast = 0
+  let simExpiry = 0
+  let renderScale = maxScale // native density; the governor steps down only if needed
   let calmChecks = 0
+  // A step up on probation, and the scale that last failed (kept for a while).
+  let trialFrom = null
+  let trialChecks = 0
+  let ceiling = Infinity
+  let ceilingUntil = 0
+  let heldScale = false // test hook: measurements at a fixed resolution
   const intervals = []
 
   // The bubble fills this share of the free space's shorter side at 1x:
@@ -482,19 +605,49 @@ export function createBubbleExperience({
   controls.saveState()
 
   const qualityInterval = window.setInterval(() => {
-    if (intervals.length < 30) return
-    const refresh = percentile(intervals, 0.1)
+    if (heldScale || intervals.length < 30) return
+    // The display's frame interval: the fastest tenth of the frames, snapped
+    // to a real display rate (120/90/60 Hz, or 30 Hz in iOS low power mode).
+    // A phone drawing a steady 50 fps on a 60 Hz screen was taken for a
+    // 50 Hz screen and never helped (Ar-Ge round 2).
+    const refresh = displayInterval(percentile(intervals, 0.1))
     refreshHz = 1000 / Math.max(refresh, 1)
-    const p95 = percentile(intervals, 0.95)
-    if (p95 > refresh * 1.5 && renderScale > minScale) {
-      renderScale = Math.max(minScale, renderScale * 0.85)
+    // Judged on about the last second, so a change is seen within a second.
+    const recent = intervals.slice(-Math.max(30, Math.round(1000 / refresh)))
+    const p50 = percentile(recent, 0.5)
+    const p95 = percentile(recent, 0.95)
+    // A median frame past the budget is a steady loss of frames (for example
+    // 48 fps on a 60 Hz screen while the film is stirred), not a hitch: step
+    // down at once by what the pixels cost (about scale squared).
+    const steady = p50 > refresh * 1.1
+    const now = performance.now()
+    if (trialFrom !== null) trialChecks += 1
+    if ((steady || p95 > refresh * 1.5) && renderScale > minScale) {
+      if (trialFrom !== null && trialChecks <= 2) {
+        // A step up that does not fit: back to the scale that did, and do
+        // not try this high again for a while (no saw-tooth drift down).
+        ceiling = renderScale
+        ceilingUntil = now + 15000
+        renderScale = trialFrom
+      } else {
+        const factor = steady ? Math.min(0.9, 0.95 * Math.sqrt(refresh / p50)) : 0.85
+        renderScale = Math.max(minScale, renderScale * factor)
+      }
+      trialFrom = null
       calmChecks = 0
+      // The new scale is judged on its own frames.
+      intervals.length = 0
       resize()
     } else if (p95 < refresh * 1.15 && renderScale < maxScale) {
+      if (trialChecks > 2) trialFrom = null
       calmChecks += 1
-      if (calmChecks >= 3) {
-        renderScale = Math.min(maxScale, renderScale * 1.1)
+      const top = now < ceilingUntil ? Math.min(maxScale, ceiling * 0.97) : maxScale
+      if (calmChecks >= 3 && renderScale < top) {
+        trialFrom = renderScale
+        trialChecks = 0
+        renderScale = Math.min(top, renderScale * 1.1)
         calmChecks = 0
+        intervals.length = 0
         resize()
       }
     } else {
@@ -520,7 +673,7 @@ export function createBubbleExperience({
     previousFrame = performance.now()
   }, listenerOptions)
   const scheduleFrame = () => {
-    if (!disposed && !contextLost) animationFrame = requestAnimationFrame(frame)
+    if (!disposed && !contextLost && !driven) animationFrame = requestAnimationFrame(frame)
   }
   // The GPU can drop the context (driver reset, memory pressure, many tabs).
   // On restore three.js re-uploads geometry, the LUT and the horizon from their
@@ -541,14 +694,26 @@ export function createBubbleExperience({
     try {
       // The old flow map is not disposed: its GL objects died with the
       // context and deleting them would only log errors; GC takes the rest.
-      flowMap = createFlowMap(renderer)
+      flowMap = createFlowMap(renderer, FLOW_WIDTH, FLOW_HEIGHT, { twoPhase })
     } catch (error) {
       onError?.(error)
       return
     }
+    breathMap = createBreathMap(renderer, bubbleGeometry, BUBBLE_SEGMENTS[0] + 1)
     // Same drainage axis as before the loss, so a turned bubble stays consistent.
     startFilm(flowMap, genome, thickness, gravity)
     uniforms.uFlow.value = flowMap.texture
+    // The detail maps died with the context too: bake them again (the live
+    // path draws meanwhile).
+    if (detailBake) {
+      detailBake = createDetailBake(renderer, bakeSize)
+      detailBake?.start(uniforms)
+    }
+    if (fullBake) {
+      fullBake = createFullDetailBake(renderer, fullBakeSize)
+      fullBake?.start(uniforms)
+    }
+    settledFrames = 0
     contextLost = false
     previousFrame = performance.now()
     scheduleFrame()
@@ -560,9 +725,27 @@ export function createBubbleExperience({
       scheduleFrame()
       return
     }
+    if (simHz && now - simLast < 1000 / simHz - 2) {
+      scheduleFrame()
+      return
+    }
+    simLast = now
     const dt = Math.min((now - previousFrame) / 1000, 0.05)
-    if (now - previousFrame < 250) intervals.push(now - previousFrame)
+    // Very slow frames count too (clamped), or a device that can barely draw
+    // would never collect enough samples to be helped; a run of them drops
+    // straight to the floor instead of stepping down once a second.
+    const interval = Math.min(now - previousFrame, 1000)
+    intervals.push(interval)
     if (intervals.length > 180) intervals.shift()
+    // (Not during the first second: shader compiles and loading stall those.)
+    settledFrames += 1
+    // (Nor while a new bubble's detail is being baked.)
+    slowFrames = interval > 100 && settledFrames > 60 && !detailBake?.busy ? slowFrames + 1 : 0
+    if (slowFrames >= 3 && !heldScale && renderScale > minScale) {
+      renderScale = minScale
+      slowFrames = 0
+      resize()
+    }
     previousFrame = now
 
     controls.update()
@@ -570,6 +753,7 @@ export function createBubbleExperience({
 
     uniforms.uTime.value += dt
     ageRipples(dt)
+    stepPopAndBloom(dt)
     modal.update(dt)
     syncModes()
     const t = uniforms.uTime.value
@@ -626,7 +810,16 @@ export function createBubbleExperience({
     thickness = thicknessOnClock(genome, ageSeconds, ownedAt)
     flowMap.setVortices(vortexState(genome, t))
     flowMap.setThickness(genome, thickness)
+    // GPU time covers the film simulation and the bubble together.
+    const timing = timerExt && !pendingQuery
+    if (timing) {
+      pendingQuery = gl.createQuery()
+      gl.beginQuery(timerExt.TIME_ELAPSED_EXT, pendingQuery)
+    }
     flowMap.step(dt, t, thickness.meanNm / lastMeanNm)
+    if (twoPhase) flowMap.phaseWeights(uniforms.uPhaseW.value)
+    detailBake?.tick()
+    fullBake?.tick()
     lastMeanNm = thickness.meanNm
     uniforms.uFlow.value = flowMap.texture
     // Reflections are world-space; only device motion turns the surroundings.
@@ -636,13 +829,24 @@ export function createBubbleExperience({
     uniforms.uViewSize.value = viewHeightAtSurface()
     bud?.sync()
 
-    if (timerExt && !pendingQuery) {
-      pendingQuery = gl.createQuery()
-      gl.beginQuery(timerExt.TIME_ELAPSED_EXT, pendingQuery)
-      renderer.render(scene, camera)
+    if (uniforms.uBreath.value > 0) breathMap.update(uniforms)
+    else uniforms.uBreathBaked.value = false
+    if (timing) {
+      draw()
       gl.endQuery(timerExt.TIME_ELAPSED_EXT)
     } else {
-      renderer.render(scene, camera)
+      draw()
+    }
+    if (simLoad > 1) {
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2())
+      if (!simTarget || simTarget.width !== size.x || simTarget.height !== size.y) {
+        simTarget?.dispose()
+        simTarget = new THREE.WebGLRenderTarget(size.x, size.y, { depthBuffer: false })
+      }
+      const previous = renderer.getRenderTarget()
+      renderer.setRenderTarget(simTarget)
+      for (let i = 1; i < simLoad; i++) renderer.render(scene, camera)
+      renderer.setRenderTarget(previous)
     }
     if (pendingQuery && gl.getQueryParameter(pendingQuery, gl.QUERY_RESULT_AVAILABLE)) {
       if (!gl.getParameter(timerExt.GPU_DISJOINT_EXT)) gpuMs = gl.getQueryParameter(pendingQuery, gl.QUERY_RESULT) / 1e6
@@ -670,6 +874,8 @@ export function createBubbleExperience({
     ready = false
     lifecycle.abort()
     window.clearInterval(qualityInterval)
+    window.clearTimeout(simExpiry)
+    simTarget?.dispose()
     cancelAnimationFrame(animationFrame)
     resizeObserver?.disconnect()
     controls.dispose()
@@ -677,6 +883,9 @@ export function createBubbleExperience({
     tapSense.dispose()
     bud?.dispose()
     flowMap.dispose()
+    breathMap.dispose()
+    detailBake?.dispose()
+    fullBake?.dispose()
     environmentTexture?.dispose()
     filmLut.dispose()
     bubbleMaterial.dispose()
@@ -690,6 +899,15 @@ export function createBubbleExperience({
   return {
     get ready() {
       return ready
+    },
+    // Lab only: lights on (light ground) or off.
+    setLight,
+    get light() {
+      return Boolean(lightGround)
+    },
+    // driven: advances one frame at the page's clock.
+    step(now = performance.now()) {
+      if (driven && !disposed && !contextLost) frame(now)
     },
     get genome() {
       return genome
@@ -710,16 +928,92 @@ export function createBubbleExperience({
       return thickness
     },
     birth,
+    // Bursts the bubble; resolves when the film is gone. Without an explicit
+    // world-space `at`, rupture nucleates in the weakest region of the current
+    // GPU thickness map, so every bubble fails from its own lived pattern.
+    pop({ at, seconds } = {}) {
+      if (popping) return Promise.resolve()
+      const naturalSeconds = ruptureDurationSeconds(genome.radius, thickness.meanNm)
+      const requestedSeconds = Number(seconds)
+      const popSeconds = Number.isFinite(requestedSeconds)
+        ? THREE.MathUtils.clamp(requestedSeconds, MIN_POP_SECONDS, 5)
+        : naturalSeconds
+      const begin = (weakness) => {
+        const dir = popOrigin
+        uniforms.uPop.value.set(dir.x, dir.y, dir.z, 0)
+        spray.start(bubble, dir, (angle) => popSeconds * Math.min(angle, POP_SWEEP) / POP_SWEEP, genome.patternSeed, thickness.meanNm)
+        return new Promise((resolve) => {
+          popping = { t: 0, seconds: popSeconds, resolve, weakness }
+        })
+      }
+      if (at) {
+        popOrigin.copy(at).normalize().applyQuaternion(popTurn.copy(bubble.quaternion).invert())
+        return begin(null)
+      }
+      // The film is copied without stalling a frame; the tear starts a frame
+      // or two later at its weakest region (or at the drained top if the copy
+      // fails, for example on a lost context).
+      if (!pendingPop) {
+        pendingPop = flowMap
+          .readFilmAsync()
+          .then((film) => weakestFilmPoint(film, FLOW_WIDTH, FLOW_HEIGHT))
+          .catch(() => null)
+          .then((weakness) => {
+            pendingPop = null
+            if (weakness) popOrigin.fromArray(weakness.direction)
+            else popOrigin.set(0, 1, 0).applyQuaternion(popTurn.copy(bubble.quaternion).invert())
+            return begin(weakness)
+          })
+      }
+      return pendingPop
+    },
+    // Grows the current bubble in (call right after birth): from a point by
+    // default, or a short swell from a smaller size.
+    bloom(seconds = BLOOM_SECONDS, from = 1e-3) {
+      blooming = { t: 0, seconds, from }
+      bubble.scale.setScalar(from)
+    },
     restore({ seed: nextSeed, ageSeconds: nextAge = 0, ownedAtSeconds: nextOwnedAt = null }) {
       return birth(nextSeed, nextAge, nextOwnedAt)
     },
     snapshot() {
       return { seed: genome.seed, ageSeconds, ownedAtSeconds: ownedAt }
     },
+    // Captures the current GPU film as well as the seed and clock. The caller
+    // must persist the Uint32Array losslessly; this does not create ownership.
+    async captureFilmState() {
+      const state = { version: 1, seed: genome.seed, ageSeconds, ownedAtSeconds: ownedAt,
+        time: uniforms.uTime.value, rotation: bubble.quaternion.toArray() }
+      // Freeze stepping while the GPU readback is pending, so the captured
+      // clock, pose and film refer to the same frame.
+      const wasPaused = paused
+      paused = true
+      try {
+        state.film = await flowMap.captureState()
+        return state
+      } finally {
+        previousFrame = performance.now()
+        paused = wasPaused
+      }
+    },
+    restoreFilmState(state) {
+      if (!state || state.version !== 1 || typeof state.seed !== 'string' || !state.seed.length || !Number.isFinite(state.ageSeconds) || state.ageSeconds < 0 || (state.ownedAtSeconds !== null && (!Number.isFinite(state.ownedAtSeconds) || state.ownedAtSeconds < 0 || state.ownedAtSeconds > state.ageSeconds)) || !Number.isFinite(state.time) || !Array.isArray(state.rotation) || state.rotation.length !== 4 || !state.rotation.every(Number.isFinite)) throw new Error('Invalid bubble state')
+      birth(state.seed, state.ageSeconds, state.ownedAtSeconds)
+      flowMap.restoreState(state.film)
+      bubble.quaternion.fromArray(state.rotation).normalize()
+      uniforms.uTime.value = state.time
+      uniforms.uFlow.value = flowMap.texture
+    },
     dispose,
     // From now on the bubble ages over years (see genome.thicknessOnClock).
     own() {
       if (ownedAt === null) ownedAt = ageSeconds
+    },
+    // Product ownership freezes the film age; lab's own() keeps its old clock.
+    ownFrozen() {
+      if (ownedAt === null) ownedAt = ageSeconds
+      ageSpeed = 0
+      return { seed: genome.seed, ageSeconds, ownedAtSeconds: ownedAt }
     },
     setAgeSpeed(speed) {
       ageSpeed = Math.max(0, Number(speed) || 0)
@@ -764,12 +1058,95 @@ export function createBubbleExperience({
       pause(on) {
         paused = Boolean(on)
       },
+      // Starts the governor from a measured scale (it keeps adjusting).
+      startScale(scale) {
+        heldScale = false
+        renderScale = THREE.MathUtils.clamp(scale, minScale, maxScale)
+        intervals.length = 0
+        calmChecks = 0
+        trialFrom = null
+        ceiling = Infinity
+        ceilingUntil = 0
+        resize()
+        return renderScale
+      },
+      holdScale(scale) {
+        heldScale = scale > 0
+        if (heldScale) renderScale = scale
+        resize()
+        return renderScale
+      },
+      flowMap: () => flowMap,
+      // Same-state shot for identity tests: view uniforms from the current
+      // camera, still surroundings, no squash.
+      prepareShot(time) {
+        uniforms.uTime.value = time
+        uniforms.uFlow.value = flowMap.texture
+        uniforms.uCameraPos.value.copy(camera.position)
+        uniforms.uViewSize.value = viewHeightAtSurface()
+        uniforms.uEnvRotation.value.identity()
+        uniforms.uSquash.value.w = 0
+        if (uniforms.uBreath.value > 0) breathMap.update(uniforms)
+      },
+      bakeNow() {
+        while (detailBake?.busy) detailBake.tick(6)
+        while (fullBake?.busy) fullBake.tick()
+      },
+      fullBakeOctaves: () => fullBake?.count ?? null,
+      setBaked(on) {
+        if (detailBake) uniforms.uBaked.value = on ? 1 : 0
+        return uniforms.uBaked.value
+      },
+
+      simulate({ dpr = window.devicePixelRatio || 1, load = 1, hz = 0 } = {}) {
+        maxScale = Math.min(dpr, 3)
+        minScale = maxScale >= 2.5 ? 1.5 : maxScale >= 2 ? 1.25 : 1
+        renderScale = maxScale
+        simLoad = Math.max(1, Math.round(load))
+        simHz = hz
+        // Safety: a simulated load never outlives a measurement (it heats
+        // the machine); it switches itself off after 30 s.
+        window.clearTimeout(simExpiry)
+        if (simLoad > 1 || simHz) {
+          simExpiry = window.setTimeout(() => {
+            simLoad = 1
+            simHz = 0
+          }, 30000)
+        }
+        intervals.length = 0
+        calmChecks = 0
+        trialFrom = null
+        ceiling = Infinity
+        ceilingUntil = 0
+        resize()
+      },
       renderOnce() {
-        renderer.render(scene, camera)
+        draw()
       },
       bubble,
       film: () => film,
       touchAt,
+      // Turns the bubble by small angles (rad, camera-space axes), as a finger would.
+      turn(dx, dy) {
+        turnBubble(dx, dy)
+      },
+      // The bubble's outline on the page: centre and radius in CSS px.
+      screenCircle() {
+        const rect = canvas.getBoundingClientRect()
+        const toPage = (v) => [rect.left + ((v.x + 1) / 2) * rect.width, rect.top + ((1 - v.y) / 2) * rect.height]
+        const [x, y] = toPage(cameraOffset.copy(bubble.position).project(camera))
+        const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0)
+        const [ex] = toPage(cameraOffset.copy(bubble.position).addScaledVector(right, bubble.scale.x).project(camera))
+        return { x, y, r: Math.abs(ex - x) }
+      },
+      // Zoom along the current view direction (keeps the bubble's turn).
+      setZoom(zoom) {
+        controls.target.set(0, 0, 0)
+        camera.position.setLength(1 + SURFACE_GAP_AT_1X / zoom)
+        controls.update()
+        keepOutside()
+        return zoomFactor()
+      },
       zoomTo(zoom, yaw = 0.35, pitch = 0.45) {
         bubble.rotation.set(pitch, yaw, 0)
         controls.target.set(0, 0, 0)

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#080808">
+<meta name="robots" content="noindex">
+<title>be relax · dev</title>
+<link rel="stylesheet" href="/src/dev/dev.css">
+</head>
+<body>
+<canvas id="bubble" aria-label="etkileşimli baloncuk"></canvas>
+<header>
+  <span class="brand">be relax · dev</span>
+  <nav class="buttons" aria-label="geliştirme alanı">
+    <button data-open="works" aria-controls="works" aria-expanded="false">çalışmalar</button>
+    <button data-open="feedback" aria-controls="feedback" aria-expanded="false">notlar</button>
+    <button data-open="account" aria-controls="account" aria-expanded="false" id="account-button">giriş</button>
+  </nav>
+</header>
+<p class="hint" id="hint">dokun · yakınlaş · keşfet</p>
+
+<div id="choices" class="choices" hidden>
+  <p class="status" id="queue-status" aria-live="polite"></p>
+  <nav aria-label="seçim">
+    <button data-choice="geç">geç</button>
+    <button id="undo">geri al</button>
+    <button data-choice="seç">seç</button>
+  </nav>
+</div>
+<div class="swipe-edge left" data-edge hidden></div>
+<div class="swipe-edge right" data-edge hidden></div>
+
+<section class="window" id="works" role="region" aria-label="çalışmalar" hidden>
+  <div class="head"><h2>çalışmalar</h2><button class="close" aria-label="çalışmaları kapat">×</button></div>
+  <p class="subline" id="works-lock">çalışmaları açmak için giriş yap.</p>
+  <button class="item feature" data-mode="motor"><span>güncel motor</span><span>flow-full</span></button>
+  <button class="item feature" data-mode="selection"><span>baloncuk seçimi</span><span>günde 12</span></button>
+  <div class="item"><span>motorlar</span><span>hazırlanıyor</span></div>
+  <div class="item"><span>kimlik kartı</span><span>henüz bağlı değil</span></div>
+  <div class="item"><span>atölye</span><span>henüz bağlı değil</span></div>
+</section>
+
+<section class="window" id="feedback" role="region" aria-label="notlar" hidden>
+  <div class="head"><h2>notlar</h2><button class="close" aria-label="notları kapat">×</button></div>
+  <p class="dim" id="note-where"></p>
+  <label for="note" class="sr">not</label>
+  <textarea id="note" maxlength="4000" placeholder="ne gördün, ne hissettin?"></textarea>
+  <button id="note-save">kaydet</button>
+  <p class="msg" id="note-msg" aria-live="polite"></p>
+  <ol class="notes" id="notes"></ol>
+</section>
+
+<section class="window" id="account" role="region" aria-label="hesap" hidden>
+  <div class="head"><h2 id="account-title">giriş</h2><button class="close" aria-label="hesabı kapat">×</button></div>
+  <form id="auth-form" novalidate>
+    <label>kullanıcı adı<input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+    <label>şifre<input id="password" name="password" type="password" autocomplete="current-password" required></label>
+    <label id="repeat-row" hidden>şifre tekrar<input id="password2" type="password" autocomplete="new-password"></label>
+    <button type="submit" id="auth-submit">giriş yap</button>
+    <p class="msg" id="auth-msg" aria-live="polite"></p>
+    <button type="button" class="link" id="auth-switch">hesap oluştur</button>
+  </form>
+  <div id="signed-in" hidden>
+    <p class="dim"><span id="who"></span> olarak girdin.</p>
+    <button id="sign-out">çıkış yap</button>
+  </div>
+</section>
+
+<script type="module" src="/src/dev/main.js"></script>
+</body>
+</html>

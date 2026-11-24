@@ -10,6 +10,7 @@ export default defineConfig({
       input: {
         main: resolve(import.meta.dirname, 'index.html'),
         bubbleGenesis: resolve(import.meta.dirname, 'bubble-genesis.html'),
+        dev: resolve(import.meta.dirname, 'dev/index.html'),
       },
       output: {
         // three.js changes far less often than app code: keep it in its own

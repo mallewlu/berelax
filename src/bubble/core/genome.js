@@ -303,7 +303,13 @@ export function createGenome(seed, { harmony = true, tuning = null } = {}) {
     budLongitude,
     rare,
   }
-  return harmony ? harmonize(genome, tuning ? { ...HARMONY, ...tuning } : HARMONY) : genome
+  if (!harmony) return genome
+  const result = harmonize(genome, tuning ? { ...HARMONY, ...tuning } : HARMONY)
+  // A tag describes the final, rendered parameters, not only pre-harmony genes.
+  result.rare = result.rare.filter((trait) =>
+    trait !== 'plumeStorm' || result.plumes >= 0.15,
+  ).filter((trait) => trait !== 'perfectBands' || result.bandStrength >= 0.3)
+  return result
 }
 
 // ---- Harmony: order out of the bubble's own chaos ----
