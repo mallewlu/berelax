@@ -771,6 +771,11 @@ export function createZoomMaterial(envTexture, filmLut, { fullDetail = false, le
     depthWrite: false,
     depthTest: false,
     side: THREE.DoubleSide,
+    // Two passes, far wall first, then the near one. ShaderMaterial defaults
+    // to one pass, which blends the two walls in mesh order: where they
+    // overlap at the rim, the order flips from ring to ring and paints
+    // horizontal stripes (measured 25 Nov 2026).
+    forceSinglePass: false,
     toneMapped: true,
     blending: THREE.CustomBlending,
     blendEquation: THREE.AddEquation,

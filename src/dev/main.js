@@ -92,6 +92,8 @@ async function refreshMember(session) {
   $('signed-in').hidden = !inside
   $('who').textContent = member ? `@${member.username}` : ''
   $('account-button').textContent = inside ? 'hesap' : 'giriş'
+  if (inside) $('account-title').textContent = 'hesap'
+  else setSignup(signingUp)
   if (session && !inside) $('auth-msg').textContent = 'bu hesap geliştirici değil.'
   $('works-lock').hidden = inside
   for (const el of document.querySelectorAll('[data-mode], #note, #note-save')) el.disabled = !inside
