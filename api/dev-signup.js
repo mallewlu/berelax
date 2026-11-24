@@ -57,7 +57,12 @@ async function signup(req, res) {
 
   stage = 'üye sayısı'
   const count = await rpc('dev_member_count')
-  if (count.status === 401 || count.status === 403) return res.status(503).json({ error: `sunucu anahtarı kabul edilmedi (${count.status})` })
+  if (count.status === 401 || count.status === 403) {
+    const why = await count.json().catch(() => ({}))
+    const shape = service.startsWith('sb_secret_') ? 'sb_secret' : service.startsWith('eyJ') ? 'jwt' : service.startsWith('sb_publishable_') ? 'publishable' : 'bilinmeyen'
+    const reason = String(why.code ?? why.error ?? '') + (why.message || why.msg ? ` ${String(why.message ?? why.msg).slice(0, 60)}` : '')
+    return res.status(503).json({ error: `sunucu anahtarı kabul edilmedi (${count.status} · anahtar: ${shape} · ${reason.trim() || 'neden yok'})` })
+  }
   if (!count.ok) return res.status(503).json({ error: `geliştirici tabloları okunamadı (${count.status})` })
   if (Number(await count.json()) > 0 && process.env.DEV_SIGNUP_OPEN !== '1') return res.status(403).json({ error: 'kayıt kapalı' })
 
