@@ -1,6 +1,8 @@
 /* berelax.space/dev — the approved dev-yon-5 layout: bubble in the middle,
    everything else in small windows over the same screen. */
 * { box-sizing: border-box }
+/* hidden always wins: label { display: block } below would otherwise show the sign-up rows on the sign-in form */
+[hidden] { display: none !important }
 html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #080808; color: #e4e0da;
   font: 400 15px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif }
 canvas { width: 100%; height: 100%; display: block; touch-action: none }
